@@ -1,0 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;700;800&family=Noto+Serif:ital,wght@0,400;0,700;1,400&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-on-primary-fixed: #3e4040;
+  --color-surface: #0e0e0e;
+  --color-surface-container-low: #131313;
+  --color-surface-bright: #2b2c2c;
+  --color-on-tertiary: #665a49;
+  --color-surface-dim: #0e0e0e;
+  --color-on-secondary-fixed-variant: #5c5b5b;
+  --color-secondary-fixed: #e4e2e1;
+  --color-outline: #757575;
+  --color-on-primary-fixed-variant: #5a5c5c;
+  --color-surface-container-high: #1f2020;
+  --color-primary-fixed: #e2e2e2;
+  --color-on-error-container: #ff9993;
+  --color-error-dim: #bb5551;
+  --color-on-error: #490106;
+  --color-tertiary: #fff1e3;
+  --color-on-secondary-container: #c0bfbe;
+  --color-on-surface: #e7e5e5;
+  --color-inverse-surface: #fcf9f8;
+  --color-secondary-container: #3b3b3b;
+  --color-surface-variant: #252626;
+  --color-primary: #c6c6c6;
+  --color-primary-dim: #b8b9b9;
+  --color-surface-container-lowest: #000000;
+  --color-on-secondary-fixed: #3f3f3f;
+  --color-primary-container: #454747;
+  --color-surface-tint: #c6c6c6;
+  --color-on-tertiary-fixed-variant: #685b4b;
+  --color-tertiary-fixed-dim: #e6d5c0;
+  --color-outline-variant: #474848;
+  --color-error-container: #7f2927;
+  --color-on-background: #e7e5e5;
+  --color-on-secondary: #202020;
+  --color-secondary-fixed-dim: #d6d4d3;
+  --color-inverse-on-surface: #565555;
+  --color-on-surface-variant: #acabab;
+  --color-inverse-primary: #5e5f5f;
+  --color-surface-container: #191a1a;
+  --color-secondary-dim: #9f9d9d;
+  --color-on-primary-container: #d0d0d0;
+  --color-on-tertiary-fixed: #4a3f30;
+  --color-on-tertiary-container: #5e5241;
+  --color-surface-container-highest: #252626;
+  --color-error: #ee7d77;
+  --color-background: #0e0e0e;
+  --color-secondary: #9f9d9d;
+  --color-tertiary-dim: #e6d5c0;
+  --color-primary-fixed-dim: #d4d4d4;
+  --color-on-primary: #3f4041;
+  --color-tertiary-container: #f4e3cd;
+  --color-tertiary-fixed: #f4e3cd;
+
+  --radius: 0.125rem;
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.5rem;
+  --radius-full: 0.75rem;
+
+  --font-headline: "Manrope", sans-serif;
+  --font-body: "Noto Serif", serif;
+  --font-label: "Manrope", sans-serif;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+.reading-gradient {
+  background: linear-gradient(90deg, var(--color-surface-container-low) 0%, var(--color-surface-container-low) 95%, transparent 100%);
+}
+
+.vibe-bg {
+  background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuA0109DUdBqR6l3o15r3LUSfgItJMQM_aQkTyr5ZPimv84v8kQMlmAqyxZH_DjNmpMKzOJfhJ3hS9PfeIAo73H9tzE_lfZ-jax6bbcw_D_g90P4EuLPMEk54m4IcJhwWDXcyTOF1IdRVaEsNBl6hntqyAaqlINd66ospwKCooFu3egJ1iE359eTjOZUepztS-B7hdVDl0w260_McN55fOZ75MxIZEafMBqRObuvjLjkkrK4ibwOFZW1VgvUuhJNLbzCgxulW5rGf18x);
+  background-size: cover;
+  background-position: center;
+  filter: blur(80px) saturate(0.5) brightness(0.2);
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+}
+
+.atmospheric-glow {
+  box-shadow: -40px 0 100px -20px rgba(0, 0, 0, 0.8) inset;
+}
+
+html, body {
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
+  position: fixed;
+  top: 0;
+  left: 0;
+}
