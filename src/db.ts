@@ -121,9 +121,15 @@ export const upsertCharacter = async (bookId: string, incoming: CharacterProfile
   const existing = await loadCharacters(bookId);
   const idx = existing.findIndex(c => c.name.toLowerCase() === incoming.name.toLowerCase());
   if (idx >= 0) {
-    // Merge: keep name casing from existing, append new details
-    existing[idx] = { ...existing[idx], description: incoming.description, updatedAt: incoming.updatedAt };
+    // ACCUMULATE: append new details rather than replacing — prevents regressions from sparse excerpts
+    const old = existing[idx];
+    const newDesc = incoming.description.trim();
+    const oldDesc = old.description.trim();
+    // Only append if the incoming description contains different information (avoid duplication)
+    const combined = oldDesc.includes(newDesc) ? oldDesc : `${oldDesc}. ${newDesc}`;
+    existing[idx] = { ...old, description: combined, updatedAt: incoming.updatedAt };
   } else {
+    // Brand new character — add them
     existing.push(incoming);
   }
   await saveCharacters(bookId, existing);

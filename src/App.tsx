@@ -445,15 +445,15 @@ export default function App() {
       setGallery(updatedGallery);
       await saveGallery(activeBook.id, updatedGallery);
 
-      // Background character extraction after each image
+      // Background character extraction after each image — always reads fresh from DB to avoid stale closure
       extractCharacterProfiles(currentContextText).then(async (extracted) => {
         if (extracted.length === 0 || !activeBook) return;
-        let current = [...characters];
+        let latest = await loadCharacters(activeBook.id); // fresh from DB, not stale closure
         for (const char of extracted) {
           const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
-          current = await upsertCharacter(activeBook.id, profile);
+          latest = await upsertCharacter(activeBook.id, profile);
         }
-        setCharacters(current);
+        setCharacters(latest);
       });
     } catch (e: any) {
       alert("Failed to generate image. " + e.message);
