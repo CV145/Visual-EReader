@@ -201,36 +201,33 @@ export default function App() {
                                 const doc = startRange.startContainer.ownerDocument;
                                 const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
                                 
-                                let precedingText = '';
                                 let currentPageText = '';
-                                let inCurrentPage = false;
+                                let subsequentText = '';
+                                let inCurrentPage = true;
                                 
                                 let currentNode: Node | null = walker.currentNode;
                                 
                                 while (currentNode) {
-                                    // Start tracking current page text when we reach the specific element bounding the screen
-                                    if (currentNode === startRange.startContainer) {
-                                        inCurrentPage = true;
-                                    }
-
                                     if (inCurrentPage) {
                                         currentPageText += currentNode.textContent + ' ';
-                                        if (currentNode === endRange.startContainer) break;
+                                        if (currentNode === endRange.startContainer) {
+                                            inCurrentPage = false;
+                                        }
                                     } else {
-                                        precedingText += currentNode.textContent + ' ';
+                                        subsequentText += currentNode.textContent + ' ';
                                     }
                                     
                                     currentNode = walker.nextNode();
                                 }
 
                                 const cleanedCurrent = currentPageText.replace(/\s+/g, ' ').trim();
-                                const cleanedPreceding = precedingText.replace(/\s+/g, ' ').trim();
+                                const cleanedSubsequent = subsequentText.replace(/\s+/g, ' ').trim();
                                 
-                                // Slice the last ~1250 words (~5 pages) of precedent text to strictly map context without overflowing tokens
-                                const precedingWords = cleanedPreceding.split(' ');
-                                const recentPreceding = precedingWords.slice(-1250).join(' ');
+                                // Slice the first ~1250 words (~5 pages) of upcoming text to foreshadow without overflowing tokens
+                                const subsequentWords = cleanedSubsequent.split(' ');
+                                const upcomingContext = subsequentWords.slice(0, 1250).join(' ');
 
-                                const finalPayload = (recentPreceding ? recentPreceding + '\n\n---\n\n' : '') + cleanedCurrent;
+                                const finalPayload = cleanedCurrent + (upcomingContext ? '\n\n---\n\n' + upcomingContext : '');
                                 if (finalPayload.length > 10) {
                                     setCurrentContextText(finalPayload);
                                 }
