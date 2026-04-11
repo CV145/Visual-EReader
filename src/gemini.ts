@@ -16,9 +16,21 @@ export async function generateAmbientImage(promptContext: string): Promise<strin
     ? "Include any characters described in the scene."
     : "Do NOT include any characters, people, or figures. Focus ONLY on the environment, landscape, architecture, and atmospheric setting.";
 
+  // Fetch Style Preferences
+  const stylePref = localStorage.getItem('IMAGE_STYLE_PREF') || 'cinematic';
+  
+  let styleDirective = "Generate a cinematic, masterpiece, 8k resolution, photorealistic image of the environment described in this story excerpt.";
+  if (stylePref === 'visual-novel') {
+      styleDirective = "Generate an anime-style 1st person Point of View (POV) visual novel background representing the environment described in this story excerpt. High quality 2D anime art style.";
+  } else if (stylePref === 'tabletop') {
+      styleDirective = "Generate a top-down tabletop miniature diorama style image representing the scene. The viewpoint should be looking down at a tabletop map. Any characters must be depicted as tiny plastic or resin minifigures with a small floating nameplate or text base showing their name next to them.";
+  } else if (stylePref === 'comic-book') {
+      styleDirective = "Generate a graphic novel page showing several different comic book panels/cells representing the sequence of events and environment described in this story excerpt. Comic book art style.";
+  }
+
   // Create a direct prompt to the multimodal model
   const environmentSuffix = includeCharacters ? "" : " No people, no characters, no figures. Environment only.";
-  const directPrompt = `Generate a cinematic, masterpiece, 8k resolution, photorealistic image of the environment described in this story excerpt. Emphasize lighting, atmosphere, and colors. ${characterDirective}${environmentSuffix}\n\nStory Excerpt:\n"${promptContext}"`;
+  const directPrompt = `${styleDirective}. Emphasize lighting, atmosphere, and colors. ${characterDirective}${environmentSuffix}\n\nStory Excerpt:\n"${promptContext}"`;
 
   try {
     const imageResponse = await ai.models.generateContent({

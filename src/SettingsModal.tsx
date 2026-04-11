@@ -3,17 +3,21 @@ import React, { useState, useEffect } from 'react';
 export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [apiKey, setApiKey] = useState('');
   const [includeCharacters, setIncludeCharacters] = useState(false);
+  const [imageStyle, setImageStyle] = useState('cinematic');
 
   useEffect(() => {
     const savedKey = localStorage.getItem('GEMINI_API_KEY');
     if (savedKey) setApiKey(savedKey);
     const savedCharPref = localStorage.getItem('INCLUDE_CHARACTERS');
     setIncludeCharacters(savedCharPref === 'true');
+    const savedStyle = localStorage.getItem('IMAGE_STYLE_PREF');
+    if (savedStyle) setImageStyle(savedStyle);
   }, [isOpen]);
 
   const saveSettings = () => {
     localStorage.setItem('GEMINI_API_KEY', apiKey);
     localStorage.setItem('INCLUDE_CHARACTERS', includeCharacters ? 'true' : 'false');
+    localStorage.setItem('IMAGE_STYLE_PREF', imageStyle);
     onClose();
   };
 
@@ -37,6 +41,21 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
         
         {/* Image Generation Options */}
         <label className="block text-on-surface-variant font-label text-xs uppercase tracking-widest mb-3">Image Generation</label>
+        
+        <div className="mb-4">
+          <label className="block text-on-surface text-sm font-body mb-2">Art Style</label>
+          <select
+            value={imageStyle}
+            onChange={(e) => setImageStyle(e.target.value)}
+            className="w-full bg-surface-container-highest border border-outline-variant text-on-surface p-3 rounded-lg focus:outline-none focus:border-primary transition-colors appearance-none cursor-pointer"
+          >
+            <option value="cinematic">Default Cinematic</option>
+            <option value="visual-novel">1st Person POV Visual Novel</option>
+            <option value="tabletop">Topdown Tabletop Minifigures</option>
+            <option value="comic-book">Graphic Novel / Comic Cells</option>
+          </select>
+        </div>
+
         <label className="flex items-center gap-3 cursor-pointer mb-6 group">
           <input 
             type="checkbox"

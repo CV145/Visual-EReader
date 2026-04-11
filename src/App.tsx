@@ -10,6 +10,13 @@ interface Bookmark {
   timestamp: number;
 }
 
+interface GalleryImage {
+  id: string;
+  base64: string;
+  timestamp: number;
+  chapter: string;
+}
+
 export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [bookTitle, setBookTitle] = useState('NOCTURNE READER');
@@ -20,11 +27,12 @@ export default function App() {
   const [currentContextText, setCurrentContextText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // TOC + Bookmarks
+  // TOC + Bookmarks + Gallery
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<'toc' | 'bookmarks'>('toc');
+  const [drawerTab, setDrawerTab] = useState<'toc' | 'bookmarks' | 'gallery'>('toc');
   const [tocItems, setTocItems] = useState<any[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [gallery, setGallery] = useState<GalleryImage[]>([]);
   const [currentCfi, setCurrentCfi] = useState<string>('');
   
   const viewerRef = useRef<HTMLDivElement>(null);
@@ -65,6 +73,7 @@ export default function App() {
       await localforage.removeItem('bookmarks'); // wipe old bookmarks
       setBookmarks([]);
       setTocItems([]);
+      setGallery([]);
       
       // Cleanup previous rendition if exists
       if (renditionRef.current) renditionRef.current.destroy();
@@ -92,6 +101,14 @@ export default function App() {
     // Load saved bookmarks
     localforage.getItem('bookmarks').then((saved) => {
         if (saved) setBookmarks(saved as Bookmark[]);
+    });
+
+    // Load gallery for specific book
+    bookRef.current.loaded.metadata.then((metadata: any) => {
+        const title = metadata.title || 'Unknown Title';
+        localforage.getItem(`gallery_${title}`).then((savedGallery) => {
+           if (savedGallery) setGallery(savedGallery as GalleryImage[]);
+        });
     });
 
     bookRef.current.ready.then(() => {
@@ -255,6 +272,18 @@ export default function App() {
     try {
         const newBg = await generateAmbientImage(currentContextText);
         setBgImage(newBg);
+
+        // Save to Gallery
+        const newGalleryItem: GalleryImage = {
+            id: Date.now().toString(),
+            base64: newBg,
+            timestamp: Date.now(),
+            chapter: chapterTitle || 'Unknown Chapter'
+        };
+        const updatedGallery = [newGalleryItem, ...gallery];
+        setGallery(updatedGallery);
+        await localforage.setItem(`gallery_${bookTitle}`, updatedGallery);
+
     } catch (e: any) {
         alert("Failed to generate image. Ensure API Key is correct and has quota. " + e.message);
     } finally {
@@ -294,6 +323,13 @@ export default function App() {
              className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer"
           >
             <span className="material-symbols-outlined">bookmarks</span>
+          </button>
+          <button
+             onClick={() => { setDrawerTab('gallery'); setIsDrawerOpen(true); }}
+             title="Image Gallery"
+             className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer hidden md:block"
+          >
+            <span className="material-symbols-outlined">photo_library</span>
           </button>
           <label className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer">
             <span className="material-symbols-outlined">upload_file</span>
@@ -438,6 +474,14 @@ export default function App() {
               >
                 Bookmarks
               </button>
+              <button
+                onClick={() => setDrawerTab('gallery')}
+                className={`flex-1 pb-3 text-sm font-label font-bold uppercase tracking-widest text-center transition-colors cursor-pointer ${
+                  drawerTab === 'gallery' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                Gallery
+              </button>
             </div>
 
             {/* Content */}
@@ -498,6 +542,43 @@ export default function App() {
                     </li>
                   ))}
                 </ul>
+              )}
+
+              {drawerTab === 'gallery' && (
+                <div className="grid grid-cols-2 gap-3 p-2">
+                  {gallery.length === 0 && (
+                    <div className="col-span-2 text-on-surface-variant text-sm text-center py-8">
+                       No images generated for this book yet.<br/>Click the sparkle button overlay to visualize a scene!
+                    </div>
+                  )}
+                  {gallery.map((img) => (
+                    <div key={img.id} className="flex flex-col gap-1 group relative">
+                      <div 
+                         className="aspect-video w-full rounded-lg overflow-hidden border border-outline-variant/30 cursor-pointer hover:border-primary transition-colors flex bg-surface-container-highest items-center justify-center relative"
+                         onClick={() => { setBgImage(img.base64); setIsExpanded(true); setIsDrawerOpen(false); }}
+                      >
+                         <img src={img.base64} alt={img.chapter} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                            <span className="material-symbols-outlined text-3xl">fullscreen</span>
+                         </div>
+                      </div>
+                      <span className="text-[10px] text-on-surface-variant font-label truncate px-1 text-center font-bold">{img.chapter}</span>
+                      <span className="text-[9px] text-on-surface-variant/70 text-center uppercase tracking-wider">{new Date(img.timestamp).toLocaleDateString()}</span>
+                      <button
+                        onClick={async (e) => {
+                           e.stopPropagation();
+                           const up = gallery.filter(g => g.id !== img.id);
+                           setGallery(up);
+                           await localforage.setItem(`gallery_${bookTitle}`, up);
+                        }}
+                        className="absolute top-1 right-1 bg-surface/80 hover:bg-red-500/80 hover:text-white text-on-surface-variant rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer backdrop-blur-sm"
+                        title="Delete Image"
+                      >
+                         <span className="material-symbols-outlined text-xs">close</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>
