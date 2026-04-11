@@ -110,7 +110,11 @@ export const saveGallery = async (bookId: string, imgs: GalleryImage[]) => {
 // ─── Character Profiles ───────────────────────────────────────────────────────
 
 export const loadCharacters = async (bookId: string): Promise<CharacterProfile[]> => {
-  return (await localforage.getItem<CharacterProfile[]>(`characters_${bookId}`)) ?? [];
+  const raw = (await localforage.getItem<CharacterProfile[]>(`characters_${bookId}`)) ?? [];
+  // Purge any profiles with blank descriptions on load
+  const clean = raw.filter(c => c.name.trim().length > 0 && c.description.trim().length > 0);
+  if (clean.length !== raw.length) await localforage.setItem(`characters_${bookId}`, clean);
+  return clean;
 };
 
 export const saveCharacters = async (bookId: string, profiles: CharacterProfile[]) => {
@@ -118,6 +122,10 @@ export const saveCharacters = async (bookId: string, profiles: CharacterProfile[
 };
 
 export const upsertCharacter = async (bookId: string, incoming: CharacterProfile): Promise<CharacterProfile[]> => {
+  // Reject blank profiles immediately — no empty entries allowed
+  if (!incoming.name.trim() || !incoming.description.trim()) {
+    return loadCharacters(bookId);
+  }
   const existing = await loadCharacters(bookId);
   const idx = existing.findIndex(c => c.name.toLowerCase() === incoming.name.toLowerCase());
   if (idx >= 0) {
