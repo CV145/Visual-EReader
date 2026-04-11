@@ -68,6 +68,7 @@ export default function App() {
   const isNavigatingBackward = useRef(false);
   const isInternalVnNavigation = useRef(false);
   const pendingTocHref = useRef<string | null>(null);
+  const pendingCfi = useRef<string | null>(null);
 
   const loadSettings = () => {
     setIsStretchImage(localStorage.getItem('STRETCH_IMAGE') === 'true');
@@ -375,6 +376,7 @@ export default function App() {
                                     }
 
                                     let targetElement: Node | null = null;
+                                    let forcedIndex: number | null = null;
                                     
                                     // TOC jumps visually overflow due to screen chunking. Manually lock the explicit Anchor node if active.
                                     if (pendingTocHref.current) {
@@ -383,25 +385,33 @@ export default function App() {
                                         if (anchorId) {
                                             const explicitNode = activeDoc.querySelector(`[id="${anchorId}"], a[name="${anchorId}"]`);
                                             if (explicitNode) targetElement = explicitNode;
+                                            else forcedIndex = 0;
+                                        } else {
+                                            forcedIndex = 0;
                                         }
                                         pendingTocHref.current = null;
                                     }
                                     
-                                    // Fallback to organic visual boundary calculation
-                                    if (!targetElement) {
-                                        targetElement = startRange.startContainer.nodeType === Node.TEXT_NODE 
-                                                ? startRange.startContainer.parentElement 
-                                                : startRange.startContainer;
+                                    // If this wasn't a targeted TOC jump, forcefully map organic transitions mathematically!
+                                    if (!targetElement && forcedIndex === null && !pendingCfi.current) {
+                                          forcedIndex = 0;
                                     }
-                                            
-                                    console.log("Resolved targetElement:", targetElement);
-                                    console.log("Resolved targetElement textContent:", targetElement?.textContent?.slice(0, 100));
                                     
                                     const rawElements = activeDoc.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
-                                    console.log(`Found ${rawElements.length} textual DOM nodes in chapter.`);
                                     
-                                    const resolveTargetIndex = () => {
+                                    // We will calculate resolveTargetIndex locally after chapterGraph completion if bookmark applies
+                                    const resolveTargetIndex = (graphRef: VnParagraph[]) => {
+                                        // Specific Bookmark Jump interception overrides everything
+                                        if (pendingCfi.current) {
+                                            const matchIdx = graphRef.findIndex((p: VnParagraph) => p.cfi === pendingCfi.current);
+                                            pendingCfi.current = null;
+                                            if (matchIdx !== -1) return matchIdx;
+                                            return 0;
+                                        }
+                                        
+                                        if (forcedIndex !== null) return forcedIndex;
                                         if (!targetElement) return 0;
+                                        
                                         let matchedIdx = 0;
                                         let found = false;
                                         let idxCount = 0;
@@ -412,22 +422,17 @@ export default function App() {
                                                     if (el === targetElement || el.contains(targetElement)) {
                                                         matchedIdx = idxCount;
                                                         found = true;
-                                                        console.log(`Target HIT! Exact Match or Container. Index: ${idxCount}. Text: ${txt.slice(0, 50)}`);
                                                     } else {
                                                         const pos = el.compareDocumentPosition(targetElement);
-                                                        // Node.DOCUMENT_POSITION_PRECEDING = 2
                                                         if (pos & Node.DOCUMENT_POSITION_PRECEDING) {
-                                                            // We encountered the first readable text block structurally subsequent to the Target Anchor
                                                             matchedIdx = idxCount;
                                                             found = true;
-                                                            console.log(`Target PRECEDING Hit! Assigning mapped block Index: ${matchedIdx}. Current element text: ${txt.slice(0, 50)}`);
                                                         }
                                                     }
                                                 }
                                                 idxCount++;
                                             }
                                         });
-                                        if (!found) console.log("WARNING: Target never matched! Defaulted to index 0.");
                                         return matchedIdx;
                                     };
                                     
@@ -453,21 +458,26 @@ export default function App() {
                                             setVnParagraphs(chapterGraph);
                                             if (isNavigatingBackward.current) {
                                                 const extremeIdx = chapterGraph.length - 1;
-                                                console.log("Navigating backward. Snapping mathematically to Extreme Index:", extremeIdx);
                                                 setActiveParagraphIndex(extremeIdx);
                                                 isInternalVnNavigation.current = true;
                                                 renditionRef.current.display(chapterGraph[extremeIdx].cfi);
                                                 isNavigatingBackward.current = false;
                                             } else {
-                                                const finalIdx = resolveTargetIndex();
-                                                console.log("Setting precise VN active index mapped to TOC:", finalIdx);
+                                                const finalIdx = resolveTargetIndex(chapterGraph);
                                                 setActiveParagraphIndex(finalIdx);
+                                                if (finalIdx > 0 && chapterGraph[finalIdx]) {
+                                                     isInternalVnNavigation.current = true;
+                                                     renditionRef.current.display(chapterGraph[finalIdx].cfi);
+                                                }
                                             }
                                         }
                                     } else {
-                                        const finalIdx = resolveTargetIndex();
-                                        console.log("Identical Chapter. Recalibrating index from Organic Pagination shift to:", finalIdx);
+                                        const finalIdx = resolveTargetIndex(vnParagraphs);
                                         setActiveParagraphIndex(finalIdx);
+                                        if (finalIdx > 0 && vnParagraphs[finalIdx]) {
+                                            isInternalVnNavigation.current = true;
+                                            renditionRef.current.display(vnParagraphs[finalIdx].cfi);
+                                        }
                                     }
                                 } catch (err) {
                                     console.error("Chapter Extraction Error:", err);
@@ -493,6 +503,7 @@ export default function App() {
   };
 
   const navigateToCfi = (cfi: string) => {
+    pendingCfi.current = cfi;
     renditionRef.current?.display(cfi);
     setIsDrawerOpen(false);
   };
