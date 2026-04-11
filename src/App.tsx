@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import localforage from 'localforage';
 import { SettingsModal } from './SettingsModal';
@@ -12,15 +12,19 @@ export default function App() {
   const [bgImage, setBgImage] = useState('https://lh3.googleusercontent.com/aida-public/AB6AXuBd5IsdtuXAefa1sVo5e0KSQOMgbc-FQHAE7KUQX1EnW6K8GRXOzBDNJn-U2nqluHhiNQOFPMCYjkNqdcTGiV-menxkJbW5T8HVMi2qalHeVEdy9mbVGLL-ESF0tp7wbf80Wyo47iImNnXPfgNfpKZt7V7TNSBGaTKZRlCHtkqfI1z2kH86RiaPLdWeCFELkpNVnEODNuQfWvEgKbfJuEDAkijghFuxBb--aNKMhFgDNG4-rR80RXhUp9X3YYAPpxnkYVUbWCvX1s5f');
   const [isLoadingImage, setIsLoadingImage] = useState(false);
   const [currentContextText, setCurrentContextText] = useState('');
+  const [isExpanded, setIsExpanded] = useState(false);
   
   const viewerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<any>(null);
   const renditionRef = useRef<any>(null);
 
+  const isMountedPhase = useRef(false);
+
   useEffect(() => {
-    // Check locally saved book on load
+    isMountedPhase.current = true;
+    // Check locally saved book on load, but prevent double init
     localforage.getItem('savedBook').then((savedBookArrayBuffer) => {
-      if (savedBookArrayBuffer) {
+      if (savedBookArrayBuffer && isMountedPhase.current && !bookRef.current) {
         initEpub(savedBookArrayBuffer);
       }
     });
@@ -30,7 +34,10 @@ export default function App() {
       if (e.key === 'ArrowLeft') prevPage();
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+       isMountedPhase.current = false;
+       window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -38,17 +45,19 @@ export default function App() {
     if (file) {
       const arrayBuffer = await file.arrayBuffer();
       await localforage.setItem('savedBook', arrayBuffer);
+      await localforage.removeItem('epubLocation'); // wipe old location
       
       // Cleanup previous rendition if exists
-      if (renditionRef.current) {
-        renditionRef.current.destroy();
-      }
+      if (renditionRef.current) renditionRef.current.destroy();
+      if (bookRef.current) bookRef.current.destroy();
+      bookRef.current = null;
       
       initEpub(arrayBuffer);
     }
   };
 
   const initEpub = (bookData: ArrayBuffer | string) => {
+    if (bookRef.current) return; // Prevent dual initialization
     bookRef.current = ePub(bookData as any);
     
     bookRef.current.loaded.metadata.then((metadata: any) => {
@@ -79,13 +88,17 @@ export default function App() {
                 'p': { 'max-width': '100% !important' }
             });
             
-            // Try to load last location
+            // Try to load last location, fallback to cover if corrupted
             localforage.getItem('epubLocation').then((loc) => {
                if (loc) {
-                   renditionRef.current.display(loc as string);
+                   renditionRef.current.display(loc as string).catch(() => {
+                       renditionRef.current.display(); 
+                   });
                } else {
                    renditionRef.current.display();
                }
+            }).catch(() => {
+                renditionRef.current.display();
             });
 
             // Bind keyboard controls inside the iframe focus context
@@ -207,7 +220,7 @@ export default function App() {
       <main className="flex flex-col lg:flex-row fixed top-14 md:top-20 bottom-14 md:bottom-20 left-0 right-0 overflow-hidden">
 
         {/* Cinematic Image Pane — top on mobile, right on desktop */}
-        <section className="order-first lg:order-last w-full lg:w-[40%] h-[25vh] lg:h-full relative overflow-hidden atmospheric-glow shrink-0">
+        <section className="order-first lg:order-last w-full lg:w-[40%] h-[25vh] lg:h-full relative overflow-hidden atmospheric-glow shrink-0 group">
           <img 
             key={bgImage}
             alt="Cinematic View" 
@@ -215,19 +228,33 @@ export default function App() {
             src={bgImage}
           />
           {/* Gradient: bottom-fade on mobile, left-fade on desktop */}
-          <div className="absolute inset-0 bg-gradient-to-b lg:bg-gradient-to-l from-transparent via-surface/20 to-surface"></div>
+          <div className="absolute inset-0 bg-gradient-to-b lg:bg-gradient-to-l from-transparent via-surface/20 to-surface pointer-events-none"></div>
           
-          {/* Generate Button */}
-          <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+          {/* Corner Action Buttons — appear subtly on hover */}
+          <div className="absolute bottom-3 right-3 z-20 flex gap-2 opacity-60 group-hover:opacity-100 transition-opacity duration-300">
              <button 
                onClick={handleGenerate}
                disabled={isLoadingImage || !bookLoaded}
-               className="pointer-events-auto flex items-center gap-2 bg-surface-container-high/60 hover:bg-surface-container-high/90 backdrop-blur-md px-4 py-2 md:px-6 md:py-3 rounded-full border border-outline-variant/30 text-on-surface font-headline font-bold uppercase text-xs md:text-base tracking-widest shadow-2xl transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+               title={isLoadingImage ? 'Generating...' : 'Generate Scene'}
+               className="w-9 h-9 flex items-center justify-center bg-surface/70 hover:bg-surface/90 backdrop-blur-md rounded-lg border border-outline-variant/30 text-on-surface shadow-lg transition-all hover:scale-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
              >
-                <span className="material-symbols-outlined text-base md:text-2xl">{isLoadingImage ? 'hourglass_empty' : 'temp_preferences_custom'}</span>
-                {isLoadingImage ? 'Conceiving...' : 'Generate Scene'}
+                <span className="material-symbols-outlined text-lg">{isLoadingImage ? 'hourglass_empty' : 'auto_awesome'}</span>
+             </button>
+             <button 
+               onClick={() => setIsExpanded(true)}
+               title="Expand Image"
+               className="w-9 h-9 flex items-center justify-center bg-surface/70 hover:bg-surface/90 backdrop-blur-md rounded-lg border border-outline-variant/30 text-on-surface shadow-lg transition-all hover:scale-110 active:scale-95 cursor-pointer"
+             >
+                <span className="material-symbols-outlined text-lg">fullscreen</span>
              </button>
           </div>
+
+          {/* Loading spinner overlay */}
+          {isLoadingImage && (
+            <div className="absolute inset-0 flex items-center justify-center z-10 bg-surface/30 backdrop-blur-sm pointer-events-none">
+              <span className="material-symbols-outlined text-4xl text-on-surface animate-spin">progress_activity</span>
+            </div>
+          )}
         </section>
 
         {/* Reading Pane — bottom on mobile, left on desktop */}
@@ -270,6 +297,26 @@ export default function App() {
       </footer>
       
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+
+      {/* Fullscreen Image Overlay */}
+      {isExpanded && (
+        <div 
+          className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-lg flex items-center justify-center cursor-pointer"
+          onClick={() => setIsExpanded(false)}
+        >
+          <img 
+            src={bgImage} 
+            alt="Expanded Cinematic View" 
+            className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl animate-in fade-in zoom-in-95 duration-300"
+          />
+          <button 
+            className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center bg-surface/50 hover:bg-surface/80 backdrop-blur-md rounded-full text-on-surface transition-all cursor-pointer"
+            onClick={() => setIsExpanded(false)}
+          >
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+      )}
     </>
   );
 }

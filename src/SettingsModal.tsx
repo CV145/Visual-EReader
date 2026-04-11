@@ -2,14 +2,18 @@ import React, { useState, useEffect } from 'react';
 
 export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [apiKey, setApiKey] = useState('');
+  const [includeCharacters, setIncludeCharacters] = useState(false);
 
   useEffect(() => {
     const savedKey = localStorage.getItem('GEMINI_API_KEY');
     if (savedKey) setApiKey(savedKey);
+    const savedCharPref = localStorage.getItem('INCLUDE_CHARACTERS');
+    setIncludeCharacters(savedCharPref === 'true');
   }, [isOpen]);
 
-  const saveKey = () => {
+  const saveSettings = () => {
     localStorage.setItem('GEMINI_API_KEY', apiKey);
+    localStorage.setItem('INCLUDE_CHARACTERS', includeCharacters ? 'true' : 'false');
     onClose();
   };
 
@@ -19,8 +23,10 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
       <div className="bg-surface-container-high border border-outline-variant/30 p-8 rounded-xl shadow-2xl max-w-md w-full relative">
         <h2 className="text-xl font-headline font-bold text-on-surface mb-2">Settings</h2>
-        <p className="text-on-surface-variant font-body text-sm mb-6">Enter your Gemini API Key to enable ambient image generation.</p>
+        <p className="text-on-surface-variant font-body text-sm mb-6">Configure your Nocturne reading experience.</p>
         
+        {/* API Key */}
+        <label className="block text-on-surface-variant font-label text-xs uppercase tracking-widest mb-2">Gemini API Key</label>
         <input 
           type="password"
           value={apiKey}
@@ -29,18 +35,32 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
           className="w-full bg-surface-container-highest border border-outline-variant text-on-surface p-3 rounded-lg focus:outline-none focus:border-primary mb-6 transition-colors"
         />
         
+        {/* Image Generation Options */}
+        <label className="block text-on-surface-variant font-label text-xs uppercase tracking-widest mb-3">Image Generation</label>
+        <label className="flex items-center gap-3 cursor-pointer mb-6 group">
+          <input 
+            type="checkbox"
+            checked={includeCharacters}
+            onChange={(e) => setIncludeCharacters(e.target.checked)}
+            className="w-5 h-5 rounded border-2 border-outline-variant bg-surface-container-highest accent-primary cursor-pointer"
+          />
+          <span className="text-on-surface font-body text-sm group-hover:text-primary transition-colors select-none">
+            Include characters in generated images
+          </span>
+        </label>
+        
         <div className="flex justify-end gap-3">
           <button 
             onClick={onClose}
-            className="px-4 py-2 text-on-surface-variant hover:text-on-surface transition-colors font-label font-medium uppercase text-sm"
+            className="px-4 py-2 text-on-surface-variant hover:text-on-surface transition-colors font-label font-medium uppercase text-sm cursor-pointer"
           >
             Close
           </button>
           <button 
-            onClick={saveKey}
+            onClick={saveSettings}
             className="px-6 py-2 bg-primary text-on-primary rounded-lg font-label font-bold uppercase text-sm hover:brightness-110 transition-all cursor-pointer"
           >
-            Save Key
+            Save
           </button>
         </div>
       </div>
