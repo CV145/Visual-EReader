@@ -16,23 +16,14 @@ export async function generateAmbientImage(promptContext: string): Promise<strin
     ? "Include any characters described in the scene."
     : "Do NOT include any characters, people, or figures. Focus ONLY on the environment, landscape, architecture, and atmospheric setting.";
 
-  // Create a visual prompt describing the scene
-  const summarizePrompt = `You are visualizing a scene from a book. Based on the following text context, write a highly descriptive, cinematic, beautiful image generation prompt (max 2 sentences). Emphasize lighting, atmosphere, colors, and the environment. ${characterDirective}\n\nContext:\n"${promptContext}"`;
+  // Create a direct prompt to the multimodal model
+  const environmentSuffix = includeCharacters ? "" : " No people, no characters, no figures. Environment only.";
+  const directPrompt = `Generate a cinematic, masterpiece, 8k resolution, photorealistic image of the environment described in this story excerpt. Emphasize lighting, atmosphere, and colors. ${characterDirective}${environmentSuffix}\n\nStory Excerpt:\n"${promptContext}"`;
 
   try {
-    const chatResponse = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: summarizePrompt,
-    });
-    
-    // Fallback prompt if Gemini text generation fails
-    const visualPromptText = chatResponse.text || "A beautiful ambient atmospheric scene.";
-    const environmentSuffix = includeCharacters ? "" : " No people, no characters, no figures. Environment only.";
-    const visualPrompt = visualPromptText + " masterpiece, high quality, cinematic lighting, 8k resolution, photorealistic, intricate details" + environmentSuffix;
-    
     const imageResponse = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: visualPrompt,
+      contents: directPrompt,
       config: {
           responseModalities: ["IMAGE"]
       }
