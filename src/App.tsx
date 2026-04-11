@@ -160,6 +160,13 @@ export default function App() {
      }
   }, [activeParagraphIndex]);
 
+  // Instantly snap to the top of the newly loaded text box when a paragraph switches organically
+  useEffect(() => {
+      if (vnTextBoxRef.current) {
+          vnTextBoxRef.current.scrollTo({ top: 0, behavior: 'instant' });
+      }
+  }, [activeParagraphIndex, vnParagraphs]);
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -549,10 +556,15 @@ export default function App() {
                      <div className="absolute top-20 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
                          <button 
                             onClick={handleGenerate}
-                            className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
-                            title="Generate Image"
+                            disabled={isLoadingImage}
+                            className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 disabled:opacity-60 disabled:cursor-not-allowed"
+                            title={isLoadingImage ? "Generating Image..." : "Generate Image"}
                           >
-                           <span className="material-symbols-outlined text-shadow">magic_button</span>
+                           {isLoadingImage ? (
+                               <span className="material-symbols-outlined animate-spin text-shadow">progress_activity</span>
+                           ) : (
+                               <span className="material-symbols-outlined text-shadow">magic_button</span>
+                           )}
                          </button>
                          <button 
                             onClick={() => setIsVnTextHidden(!isVnTextHidden)}
