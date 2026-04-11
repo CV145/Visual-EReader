@@ -632,9 +632,10 @@ export default function App() {
           <button
              onClick={toggleMusic}
              title="Ambient Real-Time Music"
-             className={`transition-colors duration-300 p-2 rounded-lg cursor-pointer ${isMusicPlaying ? 'text-accent bg-surface-container-high shadow-inner' : 'text-primary hover:bg-surface-container-high'}`}
+             className={`transition-colors duration-300 px-3 py-1.5 rounded-md border border-surface-container-highest cursor-pointer flex items-center gap-1.5 ${isMusicPlaying ? 'text-red-400 bg-surface-container border-red-500/30 shadow-inner' : 'text-primary hover:bg-surface-container-high'}`}
           >
-            <span className="material-symbols-outlined">{isMusicPlaying ? 'music_note' : 'music_off'}</span>
+            <span className="material-symbols-outlined text-sm">{isMusicPlaying ? 'stop_circle' : 'play_circle'}</span>
+            <span className="text-xs font-bold uppercase tracking-wider font-label whitespace-nowrap">{isMusicPlaying ? 'Stop Audio' : 'Start Audio'}</span>
           </button>
           <button
              onClick={() => { setDrawerTab('toc'); setIsDrawerOpen(true); }}

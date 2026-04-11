@@ -20,7 +20,7 @@ export class LyriaEngine {
              return false;
         } else {
              await this.start(prompt);
-             return true;
+             return this.isPlaying;
         }
     }
 
@@ -60,6 +60,7 @@ export class LyriaEngine {
         } catch (err) {
             console.error("Failed to initialize Lyria Engine:", err);
             this.isPlaying = false;
+            throw err;
         }
     }
 
