@@ -68,6 +68,7 @@ export default function App() {
   const isMountedPhase = useRef(false);
   const isNavigatingBackward = useRef(false);
   const isInternalVnNavigation = useRef(false);
+  const pendingTocHref = useRef<string | null>(null);
 
   const loadSettings = () => {
     setIsVnMode(localStorage.getItem('VN_MODE') === 'true');
@@ -385,9 +386,24 @@ export default function App() {
                                     }
 
                                     let targetElement: Node | null = null;
-                                    targetElement = startRange.startContainer.nodeType === Node.TEXT_NODE 
-                                            ? startRange.startContainer.parentElement 
-                                            : startRange.startContainer;
+                                    
+                                    // TOC jumps visually overflow due to screen chunking. Manually lock the explicit Anchor node if active.
+                                    if (pendingTocHref.current) {
+                                        const hashSplit = pendingTocHref.current.split('#');
+                                        const anchorId = hashSplit.length > 1 ? hashSplit[1] : null;
+                                        if (anchorId) {
+                                            const explicitNode = activeDoc.querySelector(`[id="${anchorId}"], a[name="${anchorId}"]`);
+                                            if (explicitNode) targetElement = explicitNode;
+                                        }
+                                        pendingTocHref.current = null;
+                                    }
+                                    
+                                    // Fallback to organic visual boundary calculation
+                                    if (!targetElement) {
+                                        targetElement = startRange.startContainer.nodeType === Node.TEXT_NODE 
+                                                ? startRange.startContainer.parentElement 
+                                                : startRange.startContainer;
+                                    }
                                             
                                     console.log("Resolved targetElement:", targetElement);
                                     console.log("Resolved targetElement textContent:", targetElement?.textContent?.slice(0, 100));
@@ -482,6 +498,7 @@ export default function App() {
   const prevPage = () => renditionRef.current?.prev();
 
   const navigateToHref = (href: string) => {
+    pendingTocHref.current = href;
     renditionRef.current?.display(href);
     setIsDrawerOpen(false);
   };
