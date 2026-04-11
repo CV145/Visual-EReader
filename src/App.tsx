@@ -4,6 +4,12 @@ import localforage from 'localforage';
 import { SettingsModal } from './SettingsModal';
 import { generateAmbientImage } from './gemini';
 
+interface Bookmark {
+  cfi: string;
+  label: string;
+  timestamp: number;
+}
+
 export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [bookTitle, setBookTitle] = useState('NOCTURNE READER');
@@ -13,6 +19,13 @@ export default function App() {
   const [isLoadingImage, setIsLoadingImage] = useState(false);
   const [currentContextText, setCurrentContextText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // TOC + Bookmarks
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<'toc' | 'bookmarks'>('toc');
+  const [tocItems, setTocItems] = useState<any[]>([]);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [currentCfi, setCurrentCfi] = useState<string>('');
   
   const viewerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<any>(null);
@@ -46,6 +59,9 @@ export default function App() {
       const arrayBuffer = await file.arrayBuffer();
       await localforage.setItem('savedBook', arrayBuffer);
       await localforage.removeItem('epubLocation'); // wipe old location
+      await localforage.removeItem('bookmarks'); // wipe old bookmarks
+      setBookmarks([]);
+      setTocItems([]);
       
       // Cleanup previous rendition if exists
       if (renditionRef.current) renditionRef.current.destroy();
@@ -62,6 +78,16 @@ export default function App() {
     
     bookRef.current.loaded.metadata.then((metadata: any) => {
       setBookTitle(metadata.title || 'Unknown Title');
+    });
+
+    // Load TOC
+    bookRef.current.loaded.navigation.then((nav: any) => {
+        if (nav?.toc) setTocItems(nav.toc);
+    });
+
+    // Load saved bookmarks
+    localforage.getItem('bookmarks').then((saved) => {
+        if (saved) setBookmarks(saved as Bookmark[]);
     });
 
     bookRef.current.ready.then(() => {
@@ -115,6 +141,7 @@ export default function App() {
                     if (!location || !location.start || !location.start.cfi) return;
 
                     localforage.setItem('epubLocation', location.start.cfi);
+                    setCurrentCfi(location.start.cfi);
                     
                     // Update Chapter Title
                     try {
@@ -167,6 +194,38 @@ export default function App() {
   const nextPage = () => renditionRef.current?.next();
   const prevPage = () => renditionRef.current?.prev();
 
+  const navigateToHref = (href: string) => {
+    renditionRef.current?.display(href);
+    setIsDrawerOpen(false);
+  };
+
+  const navigateToCfi = (cfi: string) => {
+    renditionRef.current?.display(cfi);
+    setIsDrawerOpen(false);
+  };
+
+  const addBookmark = async () => {
+    if (!currentCfi) return;
+    const alreadyExists = bookmarks.some(b => b.cfi === currentCfi);
+    if (alreadyExists) return;
+    const newBookmark: Bookmark = {
+      cfi: currentCfi,
+      label: chapterTitle || 'Unknown location',
+      timestamp: Date.now()
+    };
+    const updated = [...bookmarks, newBookmark];
+    setBookmarks(updated);
+    await localforage.setItem('bookmarks', updated);
+  };
+
+  const removeBookmark = async (cfi: string) => {
+    const updated = bookmarks.filter(b => b.cfi !== cfi);
+    setBookmarks(updated);
+    await localforage.setItem('bookmarks', updated);
+  };
+
+  const isCurrentPageBookmarked = bookmarks.some(b => b.cfi === currentCfi);
+
   const handleGenerate = async () => {
     if (!currentContextText) {
         alert("Please read a few pages first to gather context for the image!");
@@ -202,7 +261,21 @@ export default function App() {
           <span className="text-sm md:text-lg font-bold font-headline text-primary truncate max-w-full block">{bookTitle}</span>
           <span className="text-[10px] md:text-sm font-label text-on-surface-variant uppercase tracking-widest truncate max-w-full block">{chapterTitle}</span>
         </div>
-        <div className="flex gap-3 md:gap-6">
+        <div className="flex gap-2 md:gap-4">
+          <button
+             onClick={() => { setDrawerTab('toc'); setIsDrawerOpen(true); }}
+             title="Table of Contents"
+             className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer"
+          >
+            <span className="material-symbols-outlined">menu_book</span>
+          </button>
+          <button
+             onClick={() => { setDrawerTab('bookmarks'); setIsDrawerOpen(true); }}
+             title="Bookmarks"
+             className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer"
+          >
+            <span className="material-symbols-outlined">bookmarks</span>
+          </button>
           <label className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer">
             <span className="material-symbols-outlined">upload_file</span>
             <input type="file" accept=".epub" className="hidden" onChange={handleFileUpload} />
@@ -284,8 +357,20 @@ export default function App() {
           <span className="text-[10px] font-medium uppercase tracking-widest hidden md:inline">Prev</span>
         </button>
         
-        <div className="flex flex-col items-center w-1/2 max-w-md">
-           {/* Space reserved for future tools/widgets */}
+        <div className="flex items-center justify-center">
+          <button
+            onClick={addBookmark}
+            disabled={!bookLoaded || isCurrentPageBookmarked}
+            title={isCurrentPageBookmarked ? 'Page bookmarked' : 'Bookmark this page'}
+            className="flex items-center gap-2 text-on-surface-variant hover:text-primary cursor-pointer transition-colors disabled:opacity-50"
+          >
+            <span className="material-symbols-outlined text-xl">
+              {isCurrentPageBookmarked ? 'bookmark_added' : 'bookmark_add'}
+            </span>
+            <span className="text-[10px] font-medium uppercase tracking-widest hidden md:inline">
+              {isCurrentPageBookmarked ? 'Saved' : 'Bookmark'}
+            </span>
+          </button>
         </div>
         
         <button onClick={nextPage} className="flex items-center gap-2 md:gap-3 text-on-surface-variant cursor-pointer hover:text-on-surface transition-colors">
@@ -297,6 +382,108 @@ export default function App() {
       </footer>
       
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+
+      {/* TOC / Bookmarks Drawer */}
+      {isDrawerOpen && (
+        <div className="fixed inset-0 z-[150] flex">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsDrawerOpen(false)}></div>
+          
+          {/* Drawer Panel */}
+          <div className="relative w-[85vw] max-w-sm h-full bg-surface-container-high border-r border-outline-variant/20 shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 overflow-hidden">
+            {/* Drawer Header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-3">
+              <h2 className="text-lg font-headline font-bold text-on-surface uppercase tracking-wider">
+                {drawerTab === 'toc' ? 'Contents' : 'Bookmarks'}
+              </h2>
+              <button onClick={() => setIsDrawerOpen(false)} className="text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-outline-variant/20 px-5">
+              <button
+                onClick={() => setDrawerTab('toc')}
+                className={`flex-1 pb-3 text-sm font-label font-bold uppercase tracking-widest text-center transition-colors cursor-pointer ${
+                  drawerTab === 'toc' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                Chapters
+              </button>
+              <button
+                onClick={() => setDrawerTab('bookmarks')}
+                className={`flex-1 pb-3 text-sm font-label font-bold uppercase tracking-widest text-center transition-colors cursor-pointer ${
+                  drawerTab === 'bookmarks' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                Bookmarks
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto px-2 py-3">
+              {drawerTab === 'toc' && (
+                <ul className="space-y-0.5">
+                  {tocItems.length === 0 && (
+                    <li className="text-on-surface-variant text-sm text-center py-8">No table of contents available.</li>
+                  )}
+                  {tocItems.map((item: any, idx: number) => (
+                    <React.Fragment key={idx}>
+                      <li>
+                        <button
+                          onClick={() => navigateToHref(item.href)}
+                          className="w-full text-left px-3 py-2.5 rounded-lg text-on-surface hover:bg-surface-container-highest hover:text-primary transition-colors text-sm font-body cursor-pointer truncate"
+                        >
+                          {item.label?.trim()}
+                        </button>
+                      </li>
+                      {item.subitems?.map((sub: any, subIdx: number) => (
+                        <li key={`${idx}-${subIdx}`}>
+                          <button
+                            onClick={() => navigateToHref(sub.href)}
+                            className="w-full text-left pl-8 pr-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-highest hover:text-primary transition-colors text-xs font-body cursor-pointer truncate"
+                          >
+                            {sub.label?.trim()}
+                          </button>
+                        </li>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </ul>
+              )}
+
+              {drawerTab === 'bookmarks' && (
+                <ul className="space-y-1">
+                  {bookmarks.length === 0 && (
+                    <li className="text-on-surface-variant text-sm text-center py-8">No bookmarks yet.<br/>Use the bookmark button at the bottom to save your place.</li>
+                  )}
+                  {bookmarks.map((bm, idx) => (
+                    <li key={idx} className="flex items-center gap-2 group">
+                      <button
+                        onClick={() => navigateToCfi(bm.cfi)}
+                        className="flex-1 text-left px-3 py-2.5 rounded-lg text-on-surface hover:bg-surface-container-highest hover:text-primary transition-colors cursor-pointer truncate"
+                      >
+                        <span className="text-sm font-body block truncate">{bm.label}</span>
+                        <span className="text-[10px] text-on-surface-variant font-label">
+                          {new Date(bm.timestamp).toLocaleDateString()} {new Date(bm.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => removeBookmark(bm.cfi)}
+                        title="Remove bookmark"
+                        className="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-red-400 transition-all p-1 cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-base">delete</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Fullscreen Image Overlay */}
       {isExpanded && (
