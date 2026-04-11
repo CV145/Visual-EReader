@@ -224,7 +224,7 @@ export default function App() {
           const finalPayload = rawText.split(' ').slice(0, 1500).join(' ');
           if (finalPayload.length > 10) {
               setCurrentContextText(finalPayload);
-              if (isMusicPlaying && lyriaRef.current) {
+              if (isMusicPlaying && lyriaRef.current && (activeParagraphIndex % 10 === 0)) {
                    lyriaRef.current.setPrompts(finalPayload);
               }
           }

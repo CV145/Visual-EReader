@@ -19,7 +19,7 @@ export async function generateAmbientImage(promptContext: string): Promise<strin
   // Fetch Style Preferences
   const stylePref = localStorage.getItem('IMAGE_STYLE_PREF') || 'cinematic';
   
-  let styleDirective = "Generate a cinematic, masterpiece, 8k resolution, photorealistic image of the environment described in this story excerpt.";
+  let styleDirective = "Generate a 1st person Point of View (POV) cinematic masterpiece, photorealistic 8k resolution image. The viewpoint should be from the absolute perspective of the main character looking out at the world dynamically in front of them, like real life or a highly realistic movie scene.";
   if (stylePref === 'visual-novel') {
       styleDirective = "Generate an anime-style 1st person Point of View (POV) visual novel background representing the environment described in this story excerpt. High quality 2D anime art style.";
   } else if (stylePref === 'tabletop') {

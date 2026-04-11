@@ -74,8 +74,8 @@ export class LyriaEngine {
     async setPrompts(prompt: string) {
         if (!this.session || !this.isPlaying) return;
         
-        // Truncate prompt to first 300 chars and prepend strict instrumental thematic boundary guardrails
-        const safePrompt = `Cinematic, atmospheric instrumental background music, cinematic score, no vocals. Theme: ` + prompt.slice(0, 300);
+        // Truncate prompt to first 300 chars and prepend strict instrumental reading guardrails restricting high intensity tempos
+        const safePrompt = `Extremely calm, ambient background reading music, low intensity, soft drones, slow tempo, no percussion, relaxing, no vocals. Theme: ` + prompt.slice(0, 300);
         
         try {
             // Note: In Javascript SDK, the payload might slightly differ mathematically than python.
