@@ -6,7 +6,7 @@ const getClient = () => {
   return new GoogleGenAI({ apiKey: key });
 };
 
-export async function generateAmbientImage(promptContext: string): Promise<string> {
+export async function generateAmbientImage(promptContext: string, characterContext?: string): Promise<string> {
   const ai = getClient();
   
   // Check if user wants characters in the image
@@ -30,7 +30,8 @@ export async function generateAmbientImage(promptContext: string): Promise<strin
 
   // Create a direct prompt to the multimodal model
   const environmentSuffix = includeCharacters ? "" : " No people, no characters, no figures. Environment only.";
-  const directPrompt = `${styleDirective}. Emphasize lighting, atmosphere, and colors. ${characterDirective}${environmentSuffix}\n\nStory Excerpt:\n"${promptContext}"`;
+  const characterSheet = characterContext ? `\n\nKnown Character Appearances (maintain strict visual consistency):\n${characterContext}` : '';
+  const directPrompt = `${styleDirective}. Emphasize lighting, atmosphere, and colors. ${characterDirective}${environmentSuffix}${characterSheet}\n\nStory Excerpt:\n"${promptContext}"`;
 
   console.log("------- SENDING TO GEMINI -------");
   console.log(directPrompt);
@@ -87,5 +88,27 @@ export async function analyzeMusicalSentiment(paragraphsText: string): Promise<s
    } catch (error) {
        console.error("Error analyzing musical sentiment:", error);
        return "ambient background music, calm, cinematic"; // Safe fallback
+   }
+}
+
+export interface ExtractedCharacter {
+  name: string;
+  description: string;
+}
+
+export async function extractCharacterProfiles(paragraphsText: string): Promise<ExtractedCharacter[]> {
+   const ai = getClient();
+   const prompt = `You are a meticulous Character Designer reading a story. Extract all NAMED characters and describe their physical appearance only.
+   Output ONLY a valid JSON array with objects having "name" and "description" fields. "description" = physical appearance ONLY (hair, eyes, skin, build, clothing). If none found, output []. No text outside the JSON array.
+   Story Excerpt: "${paragraphsText.slice(0, 2000)}"`;
+   try {
+       const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+       const raw = (response.text || '[]').trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+       const parsed = JSON.parse(raw);
+       if (Array.isArray(parsed)) return parsed as ExtractedCharacter[];
+       return [];
+   } catch (error) {
+       console.error("Error extracting character profiles:", error);
+       return [];
    }
 }

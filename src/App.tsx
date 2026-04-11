@@ -1,73 +1,72 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
-import localforage from 'localforage';
 import { SettingsModal } from './SettingsModal';
-import { generateAmbientImage, analyzeMusicalSentiment } from './gemini';
+import { generateAmbientImage, analyzeMusicalSentiment, extractCharacterProfiles } from './gemini';
 import { LyriaEngine } from './lyriaEngine';
-
-interface Bookmark {
-  cfi: string;
-  label: string;
-  paragraphIndex?: number;
-  timestamp: number;
-}
+import LibraryPage from './LibraryPage';
+import {
+  BookMeta, Bookmark, GalleryImage, CharacterProfile,
+  loadBookFile, addBookToLibrary,
+  loadLocation, saveLocation,
+  loadBookmarks, saveBookmarks,
+  loadGallery, saveGallery,
+  loadCharacters, saveCharacters, upsertCharacter,
+} from './db';
 
 interface VnParagraph {
   text: string;
   cfi: string;
 }
 
-interface GalleryImage {
-  id: string;
-  base64: string;
-  timestamp: number;
-  chapter: string;
-}
-
 export default function App() {
+  // ─── Router State ─────────────────────────────────────────────────────────
+  const [activeBook, setActiveBook] = useState<BookMeta | null>(null);
+
+  // ─── UI State ─────────────────────────────────────────────────────────────
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [bookTitle, setBookTitle] = useState('NOCTURNE READER');
-  const [chapterTitle, setChapterTitle] = useState('Welcome');
+  const [bookTitle, setBookTitle] = useState('');
+  const [chapterTitle, setChapterTitle] = useState('');
   const [bookLoaded, setBookLoaded] = useState(false);
   const [bgImage, setBgImage] = useState('https://lh3.googleusercontent.com/aida-public/AB6AXuBd5IsdtuXAefa1sVo5e0KSQOMgbc-FQHAE7KUQX1EnW6K8GRXOzBDNJn-U2nqluHhiNQOFPMCYjkNqdcTGiV-menxkJbW5T8HVMi2qalHeVEdy9mbVGLL-ESF0tp7wbf80Wyo47iImNnXPfgNfpKZt7V7TNSBGaTKZRlCHtkqfI1z2kH86RiaPLdWeCFELkpNVnEODNuQfWvEgKbfJuEDAkijghFuxBb--aNKMhFgDNG4-rR80RXhUp9X3YYAPpxnkYVUbWCvX1s5f');
   const [isLoadingImage, setIsLoadingImage] = useState(false);
   const [currentContextText, setCurrentContextText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
-  
-  // Visual Novel Mode State
+  const [isTtsEnabled, setIsTtsEnabled] = useState(false);
+
+  // ─── VN State ─────────────────────────────────────────────────────────────
   const [isStretchImage, setIsStretchImage] = useState(false);
   const [vnParagraphs, setVnParagraphs] = useState<VnParagraph[]>([]);
   const [activeParagraphIndex, setActiveParagraphIndex] = useState(0);
   const [isVnTextHidden, setIsVnTextHidden] = useState(false);
   const vnTextBoxRef = useRef<HTMLDivElement>(null);
-  
-  // Font Styling State
-  const [fontSize, setFontSizeState] = useState(100);
 
+  // ─── Font ─────────────────────────────────────────────────────────────────
+  const [fontSize, setFontSizeState] = useState(100);
   const setFontSize = (size: number | ((s: number) => number)) => {
-      setFontSizeState(prev => {
-          const newSize = typeof size === 'function' ? size(prev) : size;
-          localStorage.setItem('FONT_SIZE', newSize.toString());
-          return newSize;
-      });
+    setFontSizeState(prev => {
+      const newSize = typeof size === 'function' ? size(prev) : size;
+      localStorage.setItem('FONT_SIZE', newSize.toString());
+      return newSize;
+    });
   };
 
-  // TOC + Bookmarks + Gallery
+  // ─── Drawer ───────────────────────────────────────────────────────────────
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<'toc' | 'bookmarks' | 'gallery'>('toc');
+  const [drawerTab, setDrawerTab] = useState<'toc' | 'bookmarks' | 'gallery' | 'characters'>('toc');
   const [tocItems, setTocItems] = useState<any[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [gallery, setGallery] = useState<GalleryImage[]>([]);
+  const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [currentCfi, setCurrentCfi] = useState<string>('');
-  
+  const [expandedCharacter, setExpandedCharacter] = useState<string | null>(null);
+
+  // ─── Refs ─────────────────────────────────────────────────────────────────
   const viewerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<any>(null);
   const renditionRef = useRef<any>(null);
   const lyriaRef = useRef<LyriaEngine | null>(null);
-  
   const lastSpineHrefRef = useRef<string>('');
-
   const isMountedPhase = useRef(false);
   const isNavigatingBackward = useRef(false);
   const isInternalVnNavigation = useRef(false);
@@ -75,457 +74,320 @@ export default function App() {
   const pendingCfi = useRef<string | null>(null);
   const pendingBookmarkIndex = useRef<number | null>(null);
 
+  // ─── Settings Load ────────────────────────────────────────────────────────
   const loadSettings = () => {
     setIsStretchImage(localStorage.getItem('STRETCH_IMAGE') === 'true');
     const savedFontSize = localStorage.getItem('FONT_SIZE');
     if (savedFontSize) setFontSizeState(parseInt(savedFontSize, 10));
   };
 
+  // ─── Open Book from Library ───────────────────────────────────────────────
+  const openBook = useCallback(async (book: BookMeta) => {
+    // Cleanup any existing reader state
+    if (renditionRef.current) { renditionRef.current.destroy(); renditionRef.current = null; }
+    if (bookRef.current) { bookRef.current.destroy(); bookRef.current = null; }
+    lyriaRef.current?.stop?.();
+    lyriaRef.current = null;
+    setIsMusicPlaying(false);
+    setBookLoaded(false);
+    setVnParagraphs([]);
+    setActiveParagraphIndex(0);
+    setTocItems([]);
+    setBookmarks([]);
+    setGallery([]);
+    setCharacters([]);
+    lastSpineHrefRef.current = '';
+
+    setActiveBook(book);
+    setBookTitle(book.title);
+
+    // Load per-book data
+    const [bms, gallery, chars] = await Promise.all([
+      loadBookmarks(book.id),
+      loadGallery(book.id),
+      loadCharacters(book.id),
+    ]);
+    setBookmarks(bms);
+    setGallery(gallery);
+    setCharacters(chars);
+    if (gallery.length > 0) setBgImage(gallery[0].base64);
+
+    const data = await loadBookFile(book.id);
+    if (data) initEpub(data, book.id);
+  }, []);
+
+  // ─── Mount Effect ─────────────────────────────────────────────────────────
   useEffect(() => {
     isMountedPhase.current = true;
     loadSettings();
-    // Check locally saved book on load, but prevent double init
-    localforage.getItem('savedBook').then((savedBookArrayBuffer) => {
-      if (savedBookArrayBuffer && isMountedPhase.current && !bookRef.current) {
-        initEpub(savedBookArrayBuffer);
-      }
-    });
 
     const handleKeyDown = (e: KeyboardEvent) => {
-         // VN Mode Navigation
-         if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') {
-             e.preventDefault();
-             advanceVnDialogue();
-         }
-         if (e.key === 'ArrowLeft') {
-             e.preventDefault();
-             previousVnDialogue();
-         }
-         // Custom Scrolling for long dense text
-         if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            vnTextBoxRef.current?.scrollBy({ top: -40, behavior: 'smooth' });
-         }
-         if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            vnTextBoxRef.current?.scrollBy({ top: 40, behavior: 'smooth' });
-         }
-         // Hide UI Toggle
-         if (e.key.toLowerCase() === 'h') {
-            setIsVnTextHidden(prev => !prev);
-         }
+      if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); advanceVnDialogue(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); previousVnDialogue(); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); vnTextBoxRef.current?.scrollBy({ top: -40, behavior: 'smooth' }); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); vnTextBoxRef.current?.scrollBy({ top: 40, behavior: 'smooth' }); }
+      if (e.key.toLowerCase() === 'h') setIsVnTextHidden(prev => !prev);
     };
-
     window.addEventListener('keydown', handleKeyDown);
 
-    // native Gamepad integration (Xbox/ROG Ally)
     let animationFrame: number;
-    let lastButtonAPress = false;
-    let lastDPadRight = false;
-    let lastDPadLeft = false;
-
+    let lastButtonAPress = false, lastDPadRight = false, lastDPadLeft = false;
     const pollGamepad = () => {
-        const gamepads = navigator.getGamepads();
-        const gp = gamepads.find(pad => pad !== null);
-        if (gp) {
-            // Button 0 corresponds to the A button (bottom face button)
-            const aPressed = gp.buttons[0]?.pressed;
-            // D-Pad Right corresponds to Button 15 natively on standard XInput mapping
-            const rightPressed = gp.buttons[15]?.pressed; 
-
-            if (aPressed && !lastButtonAPress) {
-                advanceVnDialogue();
-            }
-            if (rightPressed && !lastDPadRight) {
-                advanceVnDialogue();
-            }
-            // Add backwards D-Pad Left mapping (button 14)
-            const leftPressed = gp.buttons[14]?.pressed;
-            if (leftPressed && !lastDPadLeft) {
-                previousVnDialogue();
-            }
-
-            lastButtonAPress = Object.is(aPressed, true);
-            lastDPadRight = Object.is(rightPressed, true);
-            lastDPadLeft = Object.is(leftPressed, true);
-        }
-        animationFrame = requestAnimationFrame(pollGamepad);
+      const gp = navigator.getGamepads().find(p => p !== null);
+      if (gp) {
+        const aPressed = gp.buttons[0]?.pressed;
+        const rightPressed = gp.buttons[15]?.pressed;
+        const leftPressed = gp.buttons[14]?.pressed;
+        if (aPressed && !lastButtonAPress) advanceVnDialogue();
+        if (rightPressed && !lastDPadRight) advanceVnDialogue();
+        if (leftPressed && !lastDPadLeft) previousVnDialogue();
+        lastButtonAPress = !!aPressed; lastDPadRight = !!rightPressed; lastDPadLeft = !!leftPressed;
+      }
+      animationFrame = requestAnimationFrame(pollGamepad);
     };
     animationFrame = requestAnimationFrame(pollGamepad);
 
     return () => {
-       isMountedPhase.current = false;
-       window.removeEventListener('keydown', handleKeyDown);
-       cancelAnimationFrame(animationFrame);
+      isMountedPhase.current = false;
+      window.removeEventListener('keydown', handleKeyDown);
+      cancelAnimationFrame(animationFrame);
     };
   }, [vnParagraphs, activeParagraphIndex]);
 
+  // ─── VN Navigation ────────────────────────────────────────────────────────
   const advanceVnDialogue = useCallback(() => {
-     if (activeParagraphIndex < vnParagraphs.length - 1) {
-         const nextIndex = activeParagraphIndex + 1;
-         setActiveParagraphIndex(nextIndex);
-         isInternalVnNavigation.current = true;
-         renditionRef.current?.display(vnParagraphs[nextIndex].cfi);
-     } else {
-         try {
-             // Forcibly jump explicitly to the exact next chapter to avoid getting stuck in blank trailing pages
-             const currentSection = bookRef.current.spine.get(lastSpineHrefRef.current);
-             if (currentSection && currentSection.index < bookRef.current.spine.length - 1) {
-                 const nextSection = bookRef.current.spine.get(currentSection.index + 1);
-                 renditionRef.current?.display(nextSection.href);
-             } else {
-                 nextPage();
-             }
-         } catch(e) { nextPage(); }
-     }
+    if (activeParagraphIndex < vnParagraphs.length - 1) {
+      const nextIndex = activeParagraphIndex + 1;
+      setActiveParagraphIndex(nextIndex);
+      isInternalVnNavigation.current = true;
+      renditionRef.current?.display(vnParagraphs[nextIndex].cfi);
+    } else {
+      try {
+        const currentSection = bookRef.current.spine.get(lastSpineHrefRef.current);
+        if (currentSection && currentSection.index < bookRef.current.spine.length - 1) {
+          renditionRef.current?.display(bookRef.current.spine.get(currentSection.index + 1).href);
+        }
+      } catch(e) {}
+    }
   }, [activeParagraphIndex, vnParagraphs]);
 
   const previousVnDialogue = useCallback(() => {
-     if (activeParagraphIndex > 0) {
-         const prevIndex = activeParagraphIndex - 1;
-         setActiveParagraphIndex(prevIndex);
-         isInternalVnNavigation.current = true;
-         renditionRef.current?.display(vnParagraphs[prevIndex].cfi);
-     } else {
-         try {
-             // Forcibly jump backwards mathematically across strict chapter bounds mapping
-             const currentSection = bookRef.current.spine.get(lastSpineHrefRef.current);
-             if (currentSection && currentSection.index > 0) {
-                 const prevSection = bookRef.current.spine.get(currentSection.index - 1);
-                 isNavigatingBackward.current = true;
-                 renditionRef.current?.display(prevSection.href);
-             } else {
-                 isNavigatingBackward.current = true;
-                 prevPage();
-             }
-         } catch(e) {
-             isNavigatingBackward.current = true;
-             prevPage();
-         }
-     }
+    if (activeParagraphIndex > 0) {
+      const prevIndex = activeParagraphIndex - 1;
+      setActiveParagraphIndex(prevIndex);
+      isInternalVnNavigation.current = true;
+      renditionRef.current?.display(vnParagraphs[prevIndex].cfi);
+    } else {
+      try {
+        const currentSection = bookRef.current.spine.get(lastSpineHrefRef.current);
+        if (currentSection && currentSection.index > 0) {
+          isNavigatingBackward.current = true;
+          renditionRef.current?.display(bookRef.current.spine.get(currentSection.index - 1).href);
+        }
+      } catch(e) { isNavigatingBackward.current = true; }
+    }
   }, [activeParagraphIndex, vnParagraphs]);
 
-  // Instantly snap to the top of the newly loaded text box when a paragraph switches organically
+  // ─── Paragraph Index Effect (Context / Music / TTS) ───────────────────────
   useEffect(() => {
-      if (vnTextBoxRef.current) {
-          vnTextBoxRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    if (vnTextBoxRef.current) vnTextBoxRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (vnParagraphs.length > 0 && activeParagraphIndex >= 0) {
+      const activeNode = vnParagraphs[activeParagraphIndex];
+      if (activeNode && activeBook) {
+        setCurrentCfi(activeNode.cfi);
+        saveLocation(activeBook.id, activeNode.cfi);
       }
 
-      // Automatically construct Gemini Context explicitly aligned directly from the chapter array graph
-      if (vnParagraphs.length > 0 && activeParagraphIndex >= 0) {
-          const activeNode = vnParagraphs[activeParagraphIndex];
-          if (activeNode) {
-              setCurrentCfi(activeNode.cfi);
-              localforage.setItem('epubLocation', activeNode.cfi);
-          }
-
-          // Lookahead exactly 20 paragraphs for contextual awareness
-          const sliceAhead = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 20);
-          const rawText = sliceAhead.map((p: any) => p.text).join(' ');
-          const finalPayload = rawText.split(' ').slice(0, 1500).join(' ');
-          if (finalPayload.length > 10) {
-              setCurrentContextText(finalPayload);
-              if (isMusicPlaying && lyriaRef.current && (activeParagraphIndex % 10 === 0)) {
-                   // Asynchronously orchestrate sentiment without locking UI thread
-                   analyzeMusicalSentiment(finalPayload).then((sentiment) => {
-                       if (lyriaRef.current && isMusicPlaying) {
-                           lyriaRef.current.setPrompts(sentiment);
-                       }
-                   });
-              }
-          }
+      const sliceAhead = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 20);
+      const rawText = sliceAhead.map((p: any) => p.text).join(' ');
+      const finalPayload = rawText.split(' ').slice(0, 1500).join(' ');
+      if (finalPayload.length > 10) {
+        setCurrentContextText(finalPayload);
+        if (isMusicPlaying && lyriaRef.current && (activeParagraphIndex % 10 === 0)) {
+          analyzeMusicalSentiment(finalPayload).then((sentiment) => {
+            if (lyriaRef.current && isMusicPlaying) lyriaRef.current.setPrompts(sentiment);
+          });
+        }
       }
-  }, [activeParagraphIndex, vnParagraphs, isMusicPlaying]);
 
-  // Re-apply font size when it changes dynamically
+      // TTS: speak paragraph text
+      if (isTtsEnabled && activeNode) {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(activeNode.text);
+        utter.rate = 0.95;
+        utter.pitch = 1.0;
+        window.speechSynthesis.speak(utter);
+      }
+    }
+  }, [activeParagraphIndex, vnParagraphs, isMusicPlaying, isTtsEnabled, activeBook]);
+
+  // ─── Font size effect ─────────────────────────────────────────────────────
   useEffect(() => {
-     if (renditionRef.current) {
-         renditionRef.current.themes.fontSize(`${fontSize}%`);
-     }
+    if (renditionRef.current) renditionRef.current.themes.fontSize(`${fontSize}%`);
   }, [fontSize]);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const arrayBuffer = await file.arrayBuffer();
-      await localforage.setItem('savedBook', arrayBuffer);
-      await localforage.removeItem('epubLocation'); // wipe old location
-      await localforage.removeItem('bookmarks'); // wipe old bookmarks
-      setBookmarks([]);
-      setTocItems([]);
-      setGallery([]);
-      
-      // Cleanup previous rendition if exists
-      if (renditionRef.current) renditionRef.current.destroy();
-      if (bookRef.current) bookRef.current.destroy();
-      bookRef.current = null;
-      
-      initEpub(arrayBuffer);
-    }
-  };
-
-  const initEpub = (bookData: ArrayBuffer | string) => {
-    if (bookRef.current) return; // Prevent dual initialization
+  // ─── initEpub ─────────────────────────────────────────────────────────────
+  const initEpub = (bookData: ArrayBuffer, bookId: string) => {
+    if (bookRef.current) return;
     bookRef.current = ePub(bookData as any);
-    
+
     bookRef.current.loaded.metadata.then((metadata: any) => {
       setBookTitle(metadata.title || 'Unknown Title');
     });
 
-    // Load TOC
     bookRef.current.loaded.navigation.then((nav: any) => {
-        if (nav?.toc) setTocItems(nav.toc);
-    });
-
-    // Load saved bookmarks
-    localforage.getItem('bookmarks').then((saved) => {
-        if (saved) setBookmarks(saved as Bookmark[]);
-    });
-
-    // Load gallery for specific book and set the most recent image natively!
-    bookRef.current.loaded.metadata.then((metadata: any) => {
-        const title = metadata.title || 'Unknown Title';
-        localforage.getItem(`gallery_${title}`).then((savedGallery) => {
-           if (savedGallery && Array.isArray(savedGallery) && savedGallery.length > 0) {
-              setGallery(savedGallery as GalleryImage[]);
-              setBgImage(savedGallery[0].base64); // Boot directly into latest visual state
-           }
-        });
+      if (nav?.toc) setTocItems(nav.toc);
     });
 
     bookRef.current.ready.then(() => {
-        setBookLoaded(true);
-        if (viewerRef.current) {
-            renditionRef.current = bookRef.current.renderTo(viewerRef.current, {
-                width: '100%',
-                height: '100%',
-                manager: 'continuous',
-                flow: 'scrolled-doc',
-                spread: 'none',
-                snap: true
-            });
+      setBookLoaded(true);
+      if (viewerRef.current) {
+        renditionRef.current = bookRef.current.renderTo(viewerRef.current, {
+          width: '100%', height: '100%', manager: 'continuous', flow: 'scrolled-doc', spread: 'none', snap: true
+        });
 
-            // Force white text + transparent backgrounds inside the epub iframe, and prevent image pagination jamming
-            renditionRef.current.themes.default({
-                '*': { 'color': '#ffffff !important', 'background': 'transparent !important' },
-                'body': { 'margin': '0 !important', 'padding': '0 !important' },
-                'a': { 'color': '#c6c6c6 !important' },
-                'img': { 'background': 'transparent !important', 'max-width': '100% !important', 'max-height': '80vh !important', 'object-fit': 'contain !important', 'display': 'block !important', 'margin': '0 auto !important', 'page-break-inside': 'avoid !important', 'break-inside': 'avoid !important' },
-                'svg': { 'background': 'transparent !important', 'max-width': '100% !important', 'max-height': '80vh !important', 'width': '100% !important', 'height': 'auto !important', 'page-break-inside': 'avoid !important', 'break-inside': 'avoid !important' },
-                'figure': { 'page-break-inside': 'avoid !important', 'break-inside': 'avoid !important' },
-                'div': { 'max-width': '100% !important' },
-                'p': { 'max-width': '100% !important' }
-            });
-            renditionRef.current.themes.fontSize(`${fontSize}%`);
-            
-            // Try to load last location, fallback to cover if corrupted
-            localforage.getItem('epubLocation').then((loc) => {
-               if (loc) {
-                   renditionRef.current.display(loc as string).catch(() => {
-                       renditionRef.current.display(); 
-                   });
-               } else {
-                   renditionRef.current.display();
-               }
-            }).catch(() => {
-                renditionRef.current.display();
-            });
+        renditionRef.current.themes.default({
+          '*': { 'color': '#ffffff !important', 'background': 'transparent !important' },
+          'body': { 'margin': '0 !important', 'padding': '0 !important' },
+          'a': { 'color': '#c6c6c6 !important' },
+          'img': { 'background': 'transparent !important', 'max-width': '100% !important', 'max-height': '80vh !important', 'object-fit': 'contain !important', 'display': 'block !important', 'margin': '0 auto !important', 'page-break-inside': 'avoid !important', 'break-inside': 'avoid !important' },
+          'svg': { 'background': 'transparent !important', 'max-width': '100% !important', 'max-height': '80vh !important', 'width': '100% !important', 'height': 'auto !important', 'page-break-inside': 'avoid !important', 'break-inside': 'avoid !important' },
+          'figure': { 'page-break-inside': 'avoid !important', 'break-inside': 'avoid !important' },
+          'div': { 'max-width': '100% !important' },
+          'p': { 'max-width': '100% !important' }
+        });
+        renditionRef.current.themes.fontSize(`${fontSize}%`);
 
-            // Bind keyboard controls inside the iframe focus context
-            renditionRef.current.on('keyup', (e: KeyboardEvent) => {
-                if (e.key === 'ArrowRight') nextPage();
-                if (e.key === 'ArrowLeft') prevPage();
-            });
-            renditionRef.current.on('keydown', (e: KeyboardEvent) => {
-                if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') e.preventDefault();
-            });
+        loadLocation(bookId).then((loc) => {
+          if (loc) renditionRef.current.display(loc).catch(() => renditionRef.current.display());
+          else renditionRef.current.display();
+        }).catch(() => renditionRef.current.display());
 
-            renditionRef.current.on('relocated', (location: any) => {
-                try {
-                    if (!location || !location.start || !location.start.cfi) return;
+        renditionRef.current.on('relocated', (location: any) => {
+          try {
+            if (!location?.start?.cfi) return;
+            saveLocation(bookId, location.start.cfi);
+            setCurrentCfi(location.start.cfi);
 
-                    localforage.setItem('epubLocation', location.start.cfi);
-                    setCurrentCfi(location.start.cfi);
-                    
-                    // Update Chapter Title and clear context on major jump
-                    try {
-                        const spineItem = bookRef.current.spine.get(location.start.cfi);
-                        if (spineItem) {
-                            const toc = bookRef.current.navigation?.toc;
-                            if (toc && toc.length > 0) {
-                                const findChapter = (items: any[], href: string): any => {
-                                    for (const item of items) {
-                                        if (href.includes(item.href)) return item;
-                                        if (item.subitems) {
-                                            const sub = findChapter(item.subitems, href);
-                                            if (sub) return sub;
-                                        }
-                                    }
-                                    return null;
-                                };
-                                const chapter = findChapter(toc, spineItem.href);
-                                if (chapter) {
-                                    setChapterTitle(chapter.label);
-                                }
-                            }
-                            
-                            // Visual Novel: Full Chapter Graph Reconstruction
-                            if (isInternalVnNavigation.current) {
-                                isInternalVnNavigation.current = false;
-                                return;
-                            }
-                            
-                            setTimeout(() => {
-                                try {
-                                    console.log("------- RELOCATED EVENT FIRED -------");
-                                    console.log("Location.start.cfi:", location.start.cfi);
-                                    
-                                    const startRange = renditionRef.current.getRange(location.start.cfi);
-                                    if (!startRange) {
-                                        console.log("CRITICAL ERROR: startRange is null. Cannot map TOC target.");
-                                        return;
-                                    }
-
-                                    const activeDoc = startRange.startContainer.ownerDocument;
-                                    const allContents = renditionRef.current.getContents() || [];
-                                    const correctContents = allContents.find((c: any) => c.document === activeDoc) || allContents[0];
-                                    
-                                    if (!correctContents || !activeDoc) {
-                                        console.log("CRITICAL ERROR: Failed to isolate active Contents iframe object.");
-                                        return;
-                                    }
-
-                                    let targetElement: Node | null = null;
-                                    let forcedIndex: number | null = null;
-                                    
-                                    // TOC jumps visually overflow due to screen chunking. Manually lock the explicit Anchor node if active.
-                                    if (pendingTocHref.current) {
-                                        const hashSplit = pendingTocHref.current.split('#');
-                                        const anchorId = hashSplit.length > 1 ? hashSplit[1] : null;
-                                        if (anchorId) {
-                                            const explicitNode = activeDoc.querySelector(`[id="${anchorId}"], a[name="${anchorId}"]`);
-                                            if (explicitNode) targetElement = explicitNode;
-                                            else forcedIndex = 0;
-                                        } else {
-                                            forcedIndex = 0;
-                                        }
-                                        pendingTocHref.current = null;
-                                    }
-                                    
-                                    // If this wasn't a targeted TOC jump, forcefully map organic transitions mathematically!
-                                    if (!targetElement && forcedIndex === null && !pendingCfi.current) {
-                                          forcedIndex = 0;
-                                    }
-                                    
-                                    const rawElements = activeDoc.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
-                                    
-                                    // We will calculate resolveTargetIndex locally after chapterGraph completion if bookmark applies
-                                    const resolveTargetIndex = (graphRef: VnParagraph[]) => {
-                                        // Specific Bookmark Jump interception overrides everything
-                                        if (pendingCfi.current) {
-                                            const cfiString = pendingCfi.current;
-                                            const explicitIdx = pendingBookmarkIndex.current;
-                                            
-                                            // Release locks IMMEDIATELY
-                                            pendingCfi.current = null;
-                                            pendingBookmarkIndex.current = null;
-
-                                            if (explicitIdx !== null && explicitIdx !== undefined) {
-                                                 const mappedIdx = explicitIdx - 1; // 1-indexed UI var down to 0-indexed array
-                                                 if (mappedIdx >= 0 && mappedIdx < graphRef.length) return mappedIdx;
-                                            }
-
-                                            // Fallback to absolute CFI string match for legacy bookmarks
-                                            const matchIdx = graphRef.findIndex((p: VnParagraph) => p.cfi === cfiString);
-                                            if (matchIdx !== -1) return matchIdx;
-                                            
-                                            return 0;
-                                        }
-                                        
-                                        if (forcedIndex !== null) return forcedIndex;
-                                        if (!targetElement) return 0;
-                                        
-                                        let matchedIdx = 0;
-                                        let found = false;
-                                        let idxCount = 0;
-                                        rawElements.forEach(el => {
-                                            const txt = el.textContent?.trim();
-                                            if (txt && txt.length > 5) {
-                                                if (!found) {
-                                                    if (el === targetElement || el.contains(targetElement)) {
-                                                        matchedIdx = idxCount;
-                                                        found = true;
-                                                    } else {
-                                                        const pos = el.compareDocumentPosition(targetElement);
-                                                        if (pos & Node.DOCUMENT_POSITION_PRECEDING) {
-                                                            matchedIdx = idxCount;
-                                                            found = true;
-                                                        }
-                                                    }
-                                                }
-                                                idxCount++;
-                                            }
-                                        });
-                                        return matchedIdx;
-                                    };
-                                    
-                                    // If a brand new chapter hit, comprehensively recreate the Chapter Graph
-                                    if (lastSpineHrefRef.current !== spineItem.href || vnParagraphs.length === 0) {
-                                        console.log("CHAPTER BOUNDARY CROSSED. Reconstructing new Spine Item:", spineItem.href);
-                                        lastSpineHrefRef.current = spineItem.href;
-                                        
-                                        const chapterGraph: VnParagraph[] = [];
-                                        rawElements.forEach(element => {
-                                            const txt = element.textContent?.trim();
-                                            if (txt && txt.length > 5) {
-                                                const nativeCfi = correctContents.cfiFromNode(element);
-                                                if (nativeCfi) {
-                                                    chapterGraph.push({ text: txt, cfi: nativeCfi });
-                                                }
-                                            }
-                                        });
-
-                                        console.log(`Generated Chapter Graph containing exactly ${chapterGraph.length} text bodies.`);
-
-                                        if (chapterGraph.length > 0) {
-                                            setVnParagraphs(chapterGraph);
-                                            if (isNavigatingBackward.current) {
-                                                const extremeIdx = chapterGraph.length - 1;
-                                                setActiveParagraphIndex(extremeIdx);
-                                                isInternalVnNavigation.current = true;
-                                                renditionRef.current.display(chapterGraph[extremeIdx].cfi);
-                                                isNavigatingBackward.current = false;
-                                            } else {
-                                                const finalIdx = resolveTargetIndex(chapterGraph);
-                                                setActiveParagraphIndex(finalIdx);
-                                                if (finalIdx > 0 && chapterGraph[finalIdx]) {
-                                                     isInternalVnNavigation.current = true;
-                                                     renditionRef.current.display(chapterGraph[finalIdx].cfi);
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        const finalIdx = resolveTargetIndex(vnParagraphs);
-                                        setActiveParagraphIndex(finalIdx);
-                                        if (finalIdx > 0 && vnParagraphs[finalIdx]) {
-                                            isInternalVnNavigation.current = true;
-                                            renditionRef.current.display(vnParagraphs[finalIdx].cfi);
-                                        }
-                                    }
-                                } catch (err) {
-                                    console.error("Chapter Extraction Error:", err);
-                                }
-                            }, 100);
-                        }
-                    } catch (err) {}
-                } catch (generalError) {
-                    console.error("Error in relocated hook:", generalError);
+            try {
+              const spineItem = bookRef.current.spine.get(location.start.cfi);
+              if (spineItem) {
+                const toc = bookRef.current.navigation?.toc;
+                if (toc?.length > 0) {
+                  const findChapter = (items: any[], href: string): any => {
+                    for (const item of items) {
+                      if (href.includes(item.href)) return item;
+                      if (item.subitems) { const sub = findChapter(item.subitems, href); if (sub) return sub; }
+                    }
+                    return null;
+                  };
+                  const chapter = findChapter(toc, spineItem.href);
+                  if (chapter) setChapterTitle(chapter.label);
                 }
-            });
-        }
+
+                if (isInternalVnNavigation.current) { isInternalVnNavigation.current = false; return; }
+
+                setTimeout(() => {
+                  try {
+                    const startRange = renditionRef.current.getRange(location.start.cfi);
+                    if (!startRange) return;
+                    const activeDoc = startRange.startContainer.ownerDocument;
+                    const allContents = renditionRef.current.getContents() || [];
+                    const correctContents = allContents.find((c: any) => c.document === activeDoc) || allContents[0];
+                    if (!correctContents || !activeDoc) return;
+
+                    let targetElement: Node | null = null;
+                    let forcedIndex: number | null = null;
+
+                    if (pendingTocHref.current) {
+                      const hashSplit = pendingTocHref.current.split('#');
+                      const anchorId = hashSplit.length > 1 ? hashSplit[1] : null;
+                      if (anchorId) {
+                        const explicitNode = activeDoc.querySelector(`[id="${anchorId}"], a[name="${anchorId}"]`);
+                        if (explicitNode) targetElement = explicitNode; else forcedIndex = 0;
+                      } else forcedIndex = 0;
+                      pendingTocHref.current = null;
+                    }
+                    if (!targetElement && forcedIndex === null && !pendingCfi.current) forcedIndex = 0;
+
+                    const rawElements = activeDoc.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
+
+                    const resolveTargetIndex = (graphRef: VnParagraph[]) => {
+                      if (pendingCfi.current) {
+                        const explicitIdx = pendingBookmarkIndex.current;
+                        pendingCfi.current = null; pendingBookmarkIndex.current = null;
+                        if (explicitIdx !== null && explicitIdx !== undefined) {
+                          const mappedIdx = explicitIdx - 1;
+                          if (mappedIdx >= 0 && mappedIdx < graphRef.length) return mappedIdx;
+                        }
+                        return 0;
+                      }
+                      if (forcedIndex !== null) return forcedIndex;
+                      if (!targetElement) return 0;
+                      let matchedIdx = 0, found = false, idxCount = 0;
+                      rawElements.forEach(el => {
+                        const txt = el.textContent?.trim();
+                        if (txt && txt.length > 5) {
+                          if (!found) {
+                            if (el === targetElement || el.contains(targetElement)) { matchedIdx = idxCount; found = true; }
+                            else {
+                              const pos = el.compareDocumentPosition(targetElement as Node);
+                              if (pos & Node.DOCUMENT_POSITION_PRECEDING) { matchedIdx = idxCount; found = true; }
+                            }
+                          }
+                          idxCount++;
+                        }
+                      });
+                      return matchedIdx;
+                    };
+
+                    if (lastSpineHrefRef.current !== spineItem.href || vnParagraphs.length === 0) {
+                      lastSpineHrefRef.current = spineItem.href;
+                      const chapterGraph: VnParagraph[] = [];
+                      rawElements.forEach(element => {
+                        const txt = element.textContent?.trim();
+                        if (txt && txt.length > 5) {
+                          const nativeCfi = correctContents.cfiFromNode(element);
+                          if (nativeCfi) chapterGraph.push({ text: txt, cfi: nativeCfi });
+                        }
+                      });
+                      if (chapterGraph.length > 0) {
+                        setVnParagraphs(chapterGraph);
+                        if (isNavigatingBackward.current) {
+                          const extremeIdx = chapterGraph.length - 1;
+                          setActiveParagraphIndex(extremeIdx);
+                          isInternalVnNavigation.current = true;
+                          renditionRef.current.display(chapterGraph[extremeIdx].cfi);
+                          isNavigatingBackward.current = false;
+                        } else {
+                          const finalIdx = resolveTargetIndex(chapterGraph);
+                          setActiveParagraphIndex(finalIdx);
+                          if (finalIdx > 0 && chapterGraph[finalIdx]) {
+                            isInternalVnNavigation.current = true;
+                            renditionRef.current.display(chapterGraph[finalIdx].cfi);
+                          }
+                        }
+                      }
+                    } else {
+                      const finalIdx = resolveTargetIndex(vnParagraphs);
+                      setActiveParagraphIndex(finalIdx);
+                      if (finalIdx > 0 && vnParagraphs[finalIdx]) {
+                        isInternalVnNavigation.current = true;
+                        renditionRef.current.display(vnParagraphs[finalIdx].cfi);
+                      }
+                    }
+                  } catch (err) { console.error("Chapter Extraction Error:", err); }
+                }, 100);
+              }
+            } catch (err) {}
+          } catch (generalError) { console.error("Error in relocated hook:", generalError); }
+        });
+      }
     });
   };
 
+  // ─── Navigation helpers ───────────────────────────────────────────────────
   const nextPage = advanceVnDialogue;
   const prevPage = previousVnDialogue;
 
@@ -542,312 +404,269 @@ export default function App() {
     setIsDrawerOpen(false);
   };
 
+  // ─── Bookmarks ────────────────────────────────────────────────────────────
   const addBookmark = async () => {
-    if (!currentCfi) return;
-    const alreadyExists = bookmarks.some(b => b.cfi === currentCfi);
-    if (alreadyExists) return;
-    const newBookmark: Bookmark = {
-      cfi: currentCfi,
-      label: chapterTitle || 'Unknown location',
-      paragraphIndex: activeParagraphIndex + 1,
-      timestamp: Date.now()
-    };
-    const updated = [...bookmarks, newBookmark];
+    if (!currentCfi || !activeBook) return;
+    if (bookmarks.some(b => b.cfi === currentCfi)) return;
+    const newBm: Bookmark = { cfi: currentCfi, label: chapterTitle || 'Unknown', paragraphIndex: activeParagraphIndex + 1, timestamp: Date.now() };
+    const updated = [...bookmarks, newBm];
     setBookmarks(updated);
-    await localforage.setItem('bookmarks', updated);
+    await saveBookmarks(activeBook.id, updated);
   };
 
   const removeBookmark = async (cfi: string) => {
+    if (!activeBook) return;
     const updated = bookmarks.filter(b => b.cfi !== cfi);
     setBookmarks(updated);
-    await localforage.setItem('bookmarks', updated);
+    await saveBookmarks(activeBook.id, updated);
   };
 
   const isCurrentPageBookmarked = bookmarks.some(b => b.cfi === currentCfi);
-
   const toggleBookmark = async () => {
     if (!currentCfi) return;
-    if (isCurrentPageBookmarked) {
-        await removeBookmark(currentCfi);
-    } else {
-        await addBookmark();
-    }
+    if (isCurrentPageBookmarked) await removeBookmark(currentCfi); else await addBookmark();
   };
 
+  // ─── Image Generation ─────────────────────────────────────────────────────
   const handleGenerate = async () => {
-    if (!currentContextText) {
-        alert("Please read a few pages first to gather context for the image!");
-        return;
-    }
-    
+    if (!currentContextText || !activeBook) { alert("Please read a few pages first!"); return; }
     setIsLoadingImage(true);
     try {
-        const newBg = await generateAmbientImage(currentContextText);
-        setBgImage(newBg);
+      // Build character context string for prompt injection
+      const characterContext = characters.length > 0
+        ? characters.map(c => `${c.name}: ${c.description}`).join('\n')
+        : undefined;
+      const newBg = await generateAmbientImage(currentContextText, characterContext);
+      setBgImage(newBg);
 
-        // Save to Gallery
-        const newGalleryItem: GalleryImage = {
-            id: Date.now().toString(),
-            base64: newBg,
-            timestamp: Date.now(),
-            chapter: chapterTitle || 'Unknown Chapter'
-        };
-        const updatedGallery = [newGalleryItem, ...gallery];
-        setGallery(updatedGallery);
-        await localforage.setItem(`gallery_${bookTitle}`, updatedGallery);
+      // Save to gallery
+      const newItem: GalleryImage = { id: Date.now().toString(), base64: newBg, timestamp: Date.now(), chapter: chapterTitle || 'Unknown' };
+      const updatedGallery = [newItem, ...gallery];
+      setGallery(updatedGallery);
+      await saveGallery(activeBook.id, updatedGallery);
 
+      // Background character extraction after each image
+      extractCharacterProfiles(currentContextText).then(async (extracted) => {
+        if (extracted.length === 0 || !activeBook) return;
+        let current = [...characters];
+        for (const char of extracted) {
+          const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
+          current = await upsertCharacter(activeBook.id, profile);
+        }
+        setCharacters(current);
+      });
     } catch (e: any) {
-        alert("Failed to generate image. Ensure API Key is correct and has quota. " + e.message);
+      alert("Failed to generate image. " + e.message);
     } finally {
-        setIsLoadingImage(false);
+      setIsLoadingImage(false);
     }
   };
 
+  // ─── Music ────────────────────────────────────────────────────────────────
   const toggleMusic = async () => {
-      try {
-          if (!lyriaRef.current) {
-               lyriaRef.current = new LyriaEngine();
-               lyriaRef.current.attachCallback((p) => setIsMusicPlaying(p));
-          }
-          const contextPayload = currentContextText || bookTitle || "Calm ambient background text";
-          const nowPlaying = await lyriaRef.current.togglePlay(contextPayload);
-          setIsMusicPlaying(nowPlaying);
-      } catch(e: any) {
-          alert("Audio Initialization Failed: " +  (e.message || "Cannot connect to Live Music socket."));
+    try {
+      if (!lyriaRef.current) {
+        lyriaRef.current = new LyriaEngine();
+        lyriaRef.current.attachCallback((p) => setIsMusicPlaying(p));
       }
+      const payload = currentContextText || bookTitle || "Calm ambient background";
+      const nowPlaying = await lyriaRef.current.togglePlay(payload);
+      setIsMusicPlaying(nowPlaying);
+    } catch(e: any) {
+      alert("Audio Initialization Failed: " + (e.message || "Cannot connect to Live Music socket."));
+    }
   };
 
+  // ─── TTS ──────────────────────────────────────────────────────────────────
+  const toggleTts = () => {
+    if (isTtsEnabled) {
+      window.speechSynthesis.cancel();
+      setIsTtsEnabled(false);
+    } else {
+      setIsTtsEnabled(true);
+    }
+  };
+
+  // ─── Delete character ─────────────────────────────────────────────────────
+  const deleteCharacter = async (name: string) => {
+    if (!activeBook) return;
+    const updated = characters.filter(c => c.name !== name);
+    setCharacters(updated);
+    await saveCharacters(activeBook.id, updated);
+  };
+
+  // ─── Library View ─────────────────────────────────────────────────────────
+  if (!activeBook) {
+    return <LibraryPage onOpenBook={openBook} />;
+  }
+
+  // ─── Reader View ─────────────────────────────────────────────────────────
   return (
     <>
       {/* Global Background Vibe */}
-      <div 
-         className="vibe-bg transition-all duration-1000 ease-in-out" 
-         aria-hidden="true"
-         style={{ backgroundImage: `url(${bgImage})` }}
-      ></div>
+      <div className="vibe-bg transition-all duration-1000 ease-in-out" aria-hidden="true" style={{ backgroundImage: `url(${bgImage})` }}></div>
 
       {/* Top AppBar */}
       <header className="bg-surface flex justify-between items-center w-full px-4 md:px-12 py-4 md:py-6 max-w-full fixed top-0 z-50">
-        <div className="flex flex-col">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              if (renditionRef.current) { renditionRef.current.destroy(); renditionRef.current = null; }
+              if (bookRef.current) { bookRef.current.destroy(); bookRef.current = null; }
+              lyriaRef.current?.stop?.();
+              lyriaRef.current = null;
+              window.speechSynthesis.cancel();
+              setIsMusicPlaying(false); setIsTtsEnabled(false);
+              setActiveBook(null); setBookLoaded(false); setVnParagraphs([]);
+            }}
+            title="Back to Library"
+            className="text-on-surface-variant hover:text-primary transition-colors p-1.5 rounded-lg hover:bg-surface-container-high cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-xl">arrow_back</span>
+          </button>
           <span className="text-base md:text-xl font-bold tracking-tighter text-on-surface uppercase font-headline">Nocturne</span>
         </div>
-        <div className="flex flex-col items-center max-w-[45%] lg:max-w-lg text-center overflow-hidden">
+        <div className="flex flex-col items-center max-w-[35%] lg:max-w-lg text-center overflow-hidden">
           <span className="text-sm md:text-lg font-bold font-headline text-primary truncate max-w-full block">{bookTitle}</span>
           <span className="text-[10px] md:text-sm font-label text-on-surface-variant uppercase tracking-widest truncate max-w-full block">{chapterTitle}</span>
         </div>
-        <div className="flex gap-2 md:gap-4">
+        <div className="flex gap-1.5 md:gap-3 items-center">
+          {/* Music Toggle */}
           <button
-             onClick={toggleMusic}
-             title="Ambient Real-Time Music"
-             className={`transition-colors duration-300 px-3 py-1.5 rounded-md border border-surface-container-highest cursor-pointer flex items-center gap-1.5 ${isMusicPlaying ? 'text-red-400 bg-surface-container border-red-500/30 shadow-inner' : 'text-primary hover:bg-surface-container-high'}`}
+            onClick={toggleMusic}
+            title="Ambient Real-Time Music"
+            className={`transition-colors duration-300 px-2.5 py-1.5 rounded-md border cursor-pointer flex items-center gap-1 ${isMusicPlaying ? 'text-red-400 bg-surface-container border-red-500/30 shadow-inner' : 'text-primary hover:bg-surface-container-high border-surface-container-highest'}`}
           >
             <span className="material-symbols-outlined text-sm">{isMusicPlaying ? 'stop_circle' : 'play_circle'}</span>
-            <span className="text-xs font-bold uppercase tracking-wider font-label whitespace-nowrap">{isMusicPlaying ? 'Stop Audio' : 'Start Audio'}</span>
+            <span className="text-xs font-bold uppercase tracking-wider font-label whitespace-nowrap hidden sm:inline">{isMusicPlaying ? 'Stop Audio' : 'Start Audio'}</span>
           </button>
+          {/* TTS Toggle */}
           <button
-             onClick={() => { setDrawerTab('toc'); setIsDrawerOpen(true); }}
-             title="Table of Contents"
-             className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer"
+            onClick={toggleTts}
+            title={isTtsEnabled ? "Disable Narration" : "Enable Narration"}
+            className={`transition-colors duration-300 p-2 rounded-lg cursor-pointer ${isTtsEnabled ? 'text-green-400 bg-surface-container' : 'text-primary hover:bg-surface-container-high'}`}
           >
+            <span className="material-symbols-outlined text-sm">{isTtsEnabled ? 'record_voice_over' : 'voice_over_off'}</span>
+          </button>
+          <button onClick={() => { setDrawerTab('toc'); setIsDrawerOpen(true); }} title="Table of Contents" className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer">
             <span className="material-symbols-outlined">menu_book</span>
           </button>
-          <button
-             onClick={() => { setDrawerTab('bookmarks'); setIsDrawerOpen(true); }}
-             title="Bookmarks"
-             className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer"
-          >
+          <button onClick={() => { setDrawerTab('bookmarks'); setIsDrawerOpen(true); }} title="Bookmarks" className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer">
             <span className="material-symbols-outlined">bookmarks</span>
           </button>
-          <button
-             onClick={() => { setDrawerTab('gallery'); setIsDrawerOpen(true); }}
-             title="Image Gallery"
-             className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer hidden md:block"
-          >
+          <button onClick={() => { setDrawerTab('gallery'); setIsDrawerOpen(true); }} title="Image Gallery" className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer hidden md:block">
             <span className="material-symbols-outlined">photo_library</span>
           </button>
-          <label className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer">
-            <span className="material-symbols-outlined">upload_file</span>
-            <input type="file" accept=".epub" className="hidden" onChange={handleFileUpload} />
-          </label>
-          <button 
-             onClick={() => setIsSettingsOpen(true)}
-             className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer"
-          >
+          <button onClick={() => setIsSettingsOpen(true)} className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer">
             <span className="material-symbols-outlined">settings</span>
           </button>
         </div>
       </header>
 
-      {/* Main Layout - Pure Visual Novel Mode */}
+      {/* Main Layout */}
       <main className="fixed top-14 md:top-20 bottom-14 md:bottom-20 left-0 right-0 z-0 bg-black flex items-center justify-center overflow-hidden">
-          <div 
-              className="absolute inset-0 bg-center bg-no-repeat transition-transform duration-[120s] ease-linear scale-100" 
-              style={{ backgroundImage: `url(${bgImage})`, backgroundSize: isStretchImage ? '100% 100%' : 'contain' }} 
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
-          <div className="absolute inset-0 p-8 opacity-0 pointer-events-none -z-10" ref={viewerRef}></div>
-          
-          {/* Visual Novel UI Overlays */}
-          {bookLoaded ? (
-              <>
-                 <div className="absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
-                     <button 
-                        onClick={handleGenerate}
-                        disabled={isLoadingImage}
-                        className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 disabled:opacity-60 disabled:cursor-not-allowed"
-                        title={isLoadingImage ? "Generating Image..." : "Generate Image"}
-                      >
-                       {isLoadingImage ? (
-                           <span className="material-symbols-outlined animate-spin text-shadow">progress_activity</span>
-                       ) : (
-                           <span className="material-symbols-outlined text-shadow">magic_button</span>
-                       )}
-                     </button>
-                     <button 
-                        onClick={() => setIsExpanded(true)}
-                        className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
-                        title="Expand Image"
-                      >
-                       <span className="material-symbols-outlined text-shadow">fullscreen</span>
-                     </button>
-                     <button 
-                        onClick={() => setIsVnTextHidden(!isVnTextHidden)}
-                        className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
-                        title="Toggle TextBox (H)"
-                      >
-                       <span className="material-symbols-outlined text-shadow">{isVnTextHidden ? 'visibility_off' : 'visibility'}</span>
-                     </button>
-                 </div>
+        <div className="absolute inset-0 bg-center bg-no-repeat transition-transform duration-[120s] ease-linear scale-100"
+          style={{ backgroundImage: `url(${bgImage})`, backgroundSize: isStretchImage ? '100% 100%' : 'contain' }} />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
+        <div className="absolute inset-0 p-8 opacity-0 pointer-events-none -z-10" ref={viewerRef}></div>
 
-                 {!isVnTextHidden && (
-                   <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-40 bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col transform transition-transform animate-in slide-in-from-bottom-5 h-[30vh]">
-                      <div className="flex justify-between items-center mb-4 shrink-0">
-                         <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-primary/10 rounded-full border border-primary/20 shadow-inner">{chapterTitle}</span>
-                         <span className="text-white/60 text-xs font-mono tracking-widest bg-black/50 px-3 py-1 rounded-full border border-white/5">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
-                      </div>
-                      <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto pr-4 custom-scrollbar" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
-                         <p 
-                            className="text-gray-100 font-body leading-[1.8] tracking-wide shadow-none p-1 transition-all duration-300"
-                            style={{ fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem` }}
-                         >
-                             {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? vnParagraphs[activeParagraphIndex].text : "Loading content..."}
-                         </p>
-                      </div>
-                   </div>
-                 )}
-              </>
-          ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-on-surface-variant z-10 pointer-events-none">
-                  <span className="material-symbols-outlined text-5xl md:text-6xl mb-4 opacity-50">auto_stories</span>
-                  <p className="font-headline tracking-widest uppercase text-sm md:text-base">Select an EPUB to begin</p>
+        {bookLoaded ? (
+          <>
+            <div className="absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
+              <button onClick={handleGenerate} disabled={isLoadingImage}
+                className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 disabled:opacity-60 disabled:cursor-not-allowed"
+                title={isLoadingImage ? "Generating..." : "Generate Scene Image"}>
+                {isLoadingImage ? <span className="material-symbols-outlined animate-spin">progress_activity</span> : <span className="material-symbols-outlined">magic_button</span>}
+              </button>
+              <button onClick={() => { setDrawerTab('characters'); setIsDrawerOpen(true); }}
+                className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
+                title="Character Profiles">
+                <span className="material-symbols-outlined">person_book</span>
+              </button>
+              <button onClick={() => setIsExpanded(true)}
+                className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
+                title="Expand Image">
+                <span className="material-symbols-outlined">fullscreen</span>
+              </button>
+              <button onClick={() => setIsVnTextHidden(!isVnTextHidden)}
+                className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
+                title="Toggle TextBox (H)">
+                <span className="material-symbols-outlined">{isVnTextHidden ? 'visibility_off' : 'visibility'}</span>
+              </button>
+            </div>
+
+            {!isVnTextHidden && (
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-40 bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col transform transition-transform animate-in slide-in-from-bottom-5 h-[30vh]">
+                <div className="flex justify-between items-center mb-4 shrink-0">
+                  <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-primary/10 rounded-full border border-primary/20 shadow-inner">{chapterTitle}</span>
+                  <span className="text-white/60 text-xs font-mono tracking-widest bg-black/50 px-3 py-1 rounded-full border border-white/5">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
+                </div>
+                <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto pr-4" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
+                  <p className="text-gray-100 font-body leading-[1.8] tracking-wide p-1 transition-all duration-300"
+                    style={{ fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem` }}>
+                    {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? vnParagraphs[activeParagraphIndex].text : "Loading content..."}
+                  </p>
+                </div>
               </div>
-          )}
+            )}
+          </>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-on-surface-variant z-10 pointer-events-none">
+            <span className="material-symbols-outlined text-5xl md:text-6xl mb-4 opacity-50">hourglass_top</span>
+            <p className="font-headline tracking-widest uppercase text-sm md:text-base">Loading book…</p>
+          </div>
+        )}
       </main>
 
       {/* BottomNavBar */}
-      {/* BottomNavBar */}
       <footer className="fixed bottom-0 left-0 w-full z-50 h-14 md:h-20 bg-surface-container-low flex justify-between items-center px-4 md:px-12 border-t border-outline-variant/15 text-white/90">
-        
-        {/* Playback & Layout Controls */}
         <div className="flex items-center gap-1 md:gap-6">
-          <button 
-             onClick={() => { setDrawerTab('toc'); setIsDrawerOpen(true); }}
-             className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group"
-             title="Table of Contents"
-          >
-             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">format_list_bulleted</span>
+          <button onClick={() => { setDrawerTab('toc'); setIsDrawerOpen(true); }} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group" title="Table of Contents">
+            <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">format_list_bulleted</span>
           </button>
-          
-          <button 
-             onClick={() => { setDrawerTab('bookmarks'); setIsDrawerOpen(true); }}
-             className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group"
-             title="Bookmarks"
-          >
-             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">bookmarks</span>
+          <button onClick={() => { setDrawerTab('bookmarks'); setIsDrawerOpen(true); }} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group" title="Bookmarks">
+            <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">bookmarks</span>
           </button>
-
-          <button 
-             onClick={() => { setDrawerTab('gallery'); setIsDrawerOpen(true); }}
-             className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group"
-             title="Generated Gallery"
-          >
-             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">photo_library</span>
+          <button onClick={() => { setDrawerTab('gallery'); setIsDrawerOpen(true); }} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group" title="Gallery">
+            <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">photo_library</span>
           </button>
         </div>
-
-        {/* Font Controls */}
         <div className="flex items-center gap-2 bg-surface-variant/40 rounded-full px-2 py-1 border border-outline-variant/20 mx-2 md:mx-4">
-           <button 
-             onClick={() => setFontSize(f => Math.max(50, f - 10))}
-             disabled={!bookLoaded}
-             className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-surface-variant hover:text-primary transition-all cursor-pointer"
-             title="Decrease Font Size"
-           >
-             <span className="font-label font-bold text-sm select-none">A-</span>
-           </button>
-           <span className="text-xs font-mono w-10 text-center opacity-70 select-none">{(fontSize / 100).toFixed(1)}x</span>
-           <button 
-             onClick={() => setFontSize(f => Math.min(250, f + 10))}
-             disabled={!bookLoaded}
-             className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-surface-variant hover:text-primary transition-all cursor-pointer"
-             title="Increase Font Size"
-           >
-             <span className="font-label font-bold text-sm select-none">A+</span>
-           </button>
+          <button onClick={() => setFontSize(f => Math.max(50, f - 10))} disabled={!bookLoaded} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-surface-variant hover:text-primary transition-all cursor-pointer">
+            <span className="font-label font-bold text-sm select-none">A-</span>
+          </button>
+          <span className="text-xs font-mono w-10 text-center opacity-70 select-none">{(fontSize / 100).toFixed(1)}x</span>
+          <button onClick={() => setFontSize(f => Math.min(250, f + 10))} disabled={!bookLoaded} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-surface-variant hover:text-primary transition-all cursor-pointer">
+            <span className="font-label font-bold text-sm select-none">A+</span>
+          </button>
         </div>
-
-        {/* Global Progress Bar Simulation */}
-        <div className="hidden lg:flex flex-1 max-w-xl mx-8 h-1.5 bg-surface-container-high rounded-full overflow-hidden items-center group cursor-pointer" onClick={(e) => {
-           // Click to seek simulation
-           if (renditionRef.current) {
-               const rect = e.currentTarget.getBoundingClientRect();
-               const percent = (e.clientX - rect.left) / rect.width;
-               // Note: epub.js can't always natively seek by global float percentage reliably depending on book metrics.
-               // However, `rendition.display(percent)` functions if locations are generated, or `book.locations.cfiFromPercentage(percent)`
-           }
-        }}>
-           <div className="h-full bg-primary/70 group-hover:bg-primary transition-colors" style={{ width: '0%' }}></div>
+        <div className="hidden lg:flex flex-1 max-w-xl mx-8 h-1.5 bg-surface-container-high rounded-full overflow-hidden items-center">
+          <div className="h-full bg-primary/70" style={{ width: `${vnParagraphs.length > 0 ? (activeParagraphIndex / vnParagraphs.length) * 100 : 0}%` }}></div>
         </div>
-
-        {/* Forward & Reverse Overlaid Nav Controls */}
         <div className="flex items-center gap-1 md:gap-4 shrink-0">
-          <button 
-             onClick={() => prevPage()}
-             className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group active:bg-primary/20"
-          >
-             <span className="material-symbols-outlined text-[20px] md:text-3xl font-light transform group-active:-translate-x-1 transition-transform">chevron_left</span>
+          <button onClick={() => prevPage()} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group active:bg-primary/20">
+            <span className="material-symbols-outlined text-[20px] md:text-3xl font-light transform group-active:-translate-x-1 transition-transform">chevron_left</span>
           </button>
-          <button 
-             onClick={toggleBookmark}
-             disabled={!currentCfi}
-             className={`w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all cursor-pointer group ${isCurrentPageBookmarked ? 'bg-primary text-on-primary' : 'hover:bg-surface-variant hover:text-primary'}`}
-          >
-             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">{isCurrentPageBookmarked ? 'bookmark_added' : 'bookmark_add'}</span>
+          <button onClick={toggleBookmark} disabled={!currentCfi}
+            className={`w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all cursor-pointer group ${isCurrentPageBookmarked ? 'bg-primary text-on-primary' : 'hover:bg-surface-variant hover:text-primary'}`}>
+            <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">{isCurrentPageBookmarked ? 'bookmark_added' : 'bookmark_add'}</span>
           </button>
-          <button 
-             onClick={() => nextPage()}
-             className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group active:bg-primary/20"
-          >
-             <span className="material-symbols-outlined text-[20px] md:text-3xl font-light transform group-active:translate-x-1 transition-transform">chevron_right</span>
+          <button onClick={() => nextPage()} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group active:bg-primary/20">
+            <span className="material-symbols-outlined text-[20px] md:text-3xl font-light transform group-active:translate-x-1 transition-transform">chevron_right</span>
           </button>
         </div>
-        
       </footer>
-      
+
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
 
-      {/* TOC / Bookmarks Drawer */}
+      {/* Drawer */}
       {isDrawerOpen && (
         <div className="fixed inset-0 z-[150] flex">
-          {/* Backdrop */}
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsDrawerOpen(false)}></div>
-          
-          {/* Drawer Panel */}
           <div className="relative w-[85vw] max-w-sm h-full bg-surface-container-high border-r border-outline-variant/20 shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 overflow-hidden">
-            {/* Drawer Header */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <h2 className="text-lg font-headline font-bold text-on-surface uppercase tracking-wider">
-                {drawerTab === 'toc' ? 'Contents' : 'Bookmarks'}
+                {drawerTab === 'toc' ? 'Contents' : drawerTab === 'bookmarks' ? 'Bookmarks' : drawerTab === 'gallery' ? 'Gallery' : 'Characters'}
               </h2>
               <button onClick={() => setIsDrawerOpen(false)} className="text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
                 <span className="material-symbols-outlined">close</span>
@@ -855,88 +674,42 @@ export default function App() {
             </div>
 
             {/* Tabs */}
-            <div className="flex border-b border-outline-variant/20 px-5">
-              <button
-                onClick={() => setDrawerTab('toc')}
-                className={`flex-1 pb-3 text-sm font-label font-bold uppercase tracking-widest text-center transition-colors cursor-pointer ${
-                  drawerTab === 'toc' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'
-                }`}
-              >
-                Chapters
-              </button>
-              <button
-                onClick={() => setDrawerTab('bookmarks')}
-                className={`flex-1 pb-3 text-sm font-label font-bold uppercase tracking-widest text-center transition-colors cursor-pointer ${
-                  drawerTab === 'bookmarks' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'
-                }`}
-              >
-                Bookmarks
-              </button>
-              <button
-                onClick={() => setDrawerTab('gallery')}
-                className={`flex-1 pb-3 text-sm font-label font-bold uppercase tracking-widest text-center transition-colors cursor-pointer ${
-                  drawerTab === 'gallery' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'
-                }`}
-              >
-                Gallery
-              </button>
+            <div className="flex border-b border-outline-variant/20 px-2">
+              {(['toc', 'bookmarks', 'gallery', 'characters'] as const).map(tab => (
+                <button key={tab} onClick={() => setDrawerTab(tab)}
+                  className={`flex-1 pb-3 pt-1 text-[10px] font-label font-bold uppercase tracking-widest text-center transition-colors cursor-pointer ${drawerTab === tab ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'}`}>
+                  {tab === 'toc' ? 'Chapters' : tab === 'characters' ? 'Cast' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
             </div>
 
-            {/* Content */}
             <div className="flex-1 overflow-y-auto px-2 py-3">
+              {/* TOC */}
               {drawerTab === 'toc' && (
                 <ul className="space-y-0.5">
-                  {tocItems.length === 0 && (
-                    <li className="text-on-surface-variant text-sm text-center py-8">No table of contents available.</li>
-                  )}
+                  {tocItems.length === 0 && <li className="text-on-surface-variant text-sm text-center py-8">No table of contents available.</li>}
                   {tocItems.map((item: any, idx: number) => (
                     <React.Fragment key={idx}>
-                      <li>
-                        <button
-                          onClick={() => navigateToHref(item.href)}
-                          className="w-full text-left px-3 py-2.5 rounded-lg text-on-surface hover:bg-surface-container-highest hover:text-primary transition-colors text-sm font-body cursor-pointer truncate"
-                        >
-                          {item.label?.trim()}
-                        </button>
-                      </li>
+                      <li><button onClick={() => navigateToHref(item.href)} className="w-full text-left px-3 py-2.5 rounded-lg text-on-surface hover:bg-surface-container-highest hover:text-primary transition-colors text-sm font-body cursor-pointer truncate">{item.label?.trim()}</button></li>
                       {item.subitems?.map((sub: any, subIdx: number) => (
-                        <li key={`${idx}-${subIdx}`}>
-                          <button
-                            onClick={() => navigateToHref(sub.href)}
-                            className="w-full text-left pl-8 pr-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-highest hover:text-primary transition-colors text-xs font-body cursor-pointer truncate"
-                          >
-                            {sub.label?.trim()}
-                          </button>
-                        </li>
+                        <li key={`${idx}-${subIdx}`}><button onClick={() => navigateToHref(sub.href)} className="w-full text-left pl-8 pr-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-highest hover:text-primary transition-colors text-xs font-body cursor-pointer truncate">{sub.label?.trim()}</button></li>
                       ))}
                     </React.Fragment>
                   ))}
                 </ul>
               )}
 
+              {/* Bookmarks */}
               {drawerTab === 'bookmarks' && (
                 <ul className="space-y-1">
-                  {bookmarks.length === 0 && (
-                    <li className="text-on-surface-variant text-sm text-center py-8">No bookmarks yet.<br/>Use the bookmark button at the bottom to save your place.</li>
-                  )}
+                  {bookmarks.length === 0 && <li className="text-on-surface-variant text-sm text-center py-8">No bookmarks yet.<br />Use the bookmark button at the bottom.</li>}
                   {bookmarks.map((bm, idx) => (
                     <li key={idx} className="flex items-center gap-2 group">
-                      <button
-                        onClick={() => navigateToBookmark(bm)}
-                        className="flex-1 text-left px-3 py-2.5 rounded-lg text-on-surface hover:bg-surface-container-highest hover:text-primary transition-colors cursor-pointer truncate"
-                      >
-                        <span className="text-sm font-body block truncate">
-                            {bm.label}{bm.paragraphIndex ? ` \u2014 Para ${bm.paragraphIndex}` : ''}
-                        </span>
-                        <span className="text-[10px] text-on-surface-variant font-label">
-                          {new Date(bm.timestamp).toLocaleDateString()} {new Date(bm.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                        </span>
+                      <button onClick={() => navigateToBookmark(bm)} className="flex-1 text-left px-3 py-2.5 rounded-lg text-on-surface hover:bg-surface-container-highest hover:text-primary transition-colors cursor-pointer truncate">
+                        <span className="text-sm font-body block truncate">{bm.label}{bm.paragraphIndex ? ` — Para ${bm.paragraphIndex}` : ''}</span>
+                        <span className="text-[10px] text-on-surface-variant font-label">{new Date(bm.timestamp).toLocaleDateString()} {new Date(bm.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       </button>
-                      <button
-                        onClick={() => removeBookmark(bm.cfi)}
-                        title="Remove bookmark"
-                        className="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-red-400 transition-all p-1 cursor-pointer"
-                      >
+                      <button onClick={() => removeBookmark(bm.cfi)} className="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-red-400 transition-all p-1 cursor-pointer">
                         <span className="material-symbols-outlined text-base">delete</span>
                       </button>
                     </li>
@@ -944,40 +717,69 @@ export default function App() {
                 </ul>
               )}
 
+              {/* Gallery */}
               {drawerTab === 'gallery' && (
                 <div className="grid grid-cols-2 gap-3 p-2">
-                  {gallery.length === 0 && (
-                    <div className="col-span-2 text-on-surface-variant text-sm text-center py-8">
-                       No images generated for this book yet.<br/>Click the sparkle button overlay to visualize a scene!
-                    </div>
-                  )}
-                   {gallery.map((img) => (
+                  {gallery.length === 0 && <div className="col-span-2 text-on-surface-variant text-sm text-center py-8">No images yet.<br />Click the sparkle button to visualize a scene!</div>}
+                  {gallery.map((img) => (
                     <div key={img.id} className="flex flex-col gap-1 group relative">
-                      <div 
-                         className="aspect-video w-full rounded-lg overflow-hidden border border-outline-variant/30 cursor-pointer hover:border-primary transition-colors flex bg-surface-container-highest items-center justify-center relative"
-                         onClick={() => { setBgImage(img.base64); setIsDrawerOpen(false); }}
-                      >
-                         <img src={img.base64} alt={img.chapter} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
-                            <span className="material-symbols-outlined text-3xl">wallpaper</span>
-                         </div>
+                      <div className="aspect-video w-full rounded-lg overflow-hidden border border-outline-variant/30 cursor-pointer hover:border-primary transition-colors relative"
+                        onClick={() => { setBgImage(img.base64); setIsDrawerOpen(false); }}>
+                        <img src={img.base64} alt={img.chapter} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                          <span className="material-symbols-outlined text-3xl">wallpaper</span>
+                        </div>
                       </div>
                       <span className="text-[10px] text-on-surface-variant font-label truncate px-1 text-center font-bold">{img.chapter}</span>
-                      <span className="text-[9px] text-on-surface-variant/70 text-center uppercase tracking-wider">{new Date(img.timestamp).toLocaleDateString()}</span>
-                      <button
-                        onClick={async (e) => {
-                           e.stopPropagation();
-                           const up = gallery.filter(g => g.id !== img.id);
-                           setGallery(up);
-                           await localforage.setItem(`gallery_${bookTitle}`, up);
-                        }}
-                        className="absolute top-1 right-1 bg-surface/80 hover:bg-red-500/80 hover:text-white text-on-surface-variant rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer backdrop-blur-sm"
-                        title="Delete Image"
-                      >
-                         <span className="material-symbols-outlined text-xs">close</span>
+                      <button onClick={async (e) => { e.stopPropagation(); if (!activeBook) return; const up = gallery.filter(g => g.id !== img.id); setGallery(up); await saveGallery(activeBook.id, up); }}
+                        className="absolute top-1 right-1 bg-surface/80 hover:bg-red-500/80 hover:text-white text-on-surface-variant rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer backdrop-blur-sm">
+                        <span className="material-symbols-outlined text-xs">close</span>
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Characters */}
+              {drawerTab === 'characters' && (
+                <div className="px-1">
+                  {characters.length === 0 ? (
+                    <div className="text-on-surface-variant text-sm text-center py-8 px-4 leading-relaxed">
+                      <span className="material-symbols-outlined text-3xl block mb-2 opacity-30">person_search</span>
+                      No character profiles yet.<br />Generate a scene image to auto-extract character appearances.
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {characters.map((char) => (
+                        <li key={char.name} className="group border border-outline-variant/20 rounded-xl overflow-hidden">
+                          <button
+                            onClick={() => setExpandedCharacter(expandedCharacter === char.name ? null : char.name)}
+                            className="w-full flex items-center justify-between px-4 py-3 hover:bg-surface-container-highest transition-colors cursor-pointer text-left"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center">
+                                <span className="text-xs font-bold text-primary">{char.name.charAt(0).toUpperCase()}</span>
+                              </div>
+                              <span className="text-sm font-bold text-on-surface font-body">{char.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-on-surface-variant font-label">{new Date(char.updatedAt).toLocaleDateString()}</span>
+                              <span className="material-symbols-outlined text-sm text-on-surface-variant">{expandedCharacter === char.name ? 'expand_less' : 'expand_more'}</span>
+                            </div>
+                          </button>
+                          {expandedCharacter === char.name && (
+                            <div className="px-4 pb-4 bg-surface-container/50">
+                              <p className="text-xs text-on-surface-variant font-body leading-relaxed mb-3">{char.description}</p>
+                              <button onClick={() => deleteCharacter(char.name)}
+                                className="text-[10px] text-red-400/70 hover:text-red-400 transition-colors cursor-pointer font-label uppercase tracking-wider flex items-center gap-1">
+                                <span className="material-symbols-outlined text-xs">delete</span> Remove Profile
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
             </div>
@@ -987,19 +789,9 @@ export default function App() {
 
       {/* Fullscreen Image Overlay */}
       {isExpanded && (
-        <div 
-          className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-lg flex items-center justify-center cursor-pointer"
-          onClick={() => setIsExpanded(false)}
-        >
-          <img 
-            src={bgImage} 
-            alt="Expanded Cinematic View" 
-            className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl animate-in fade-in zoom-in-95 duration-300"
-          />
-          <button 
-            className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center bg-surface/50 hover:bg-surface/80 backdrop-blur-md rounded-full text-on-surface transition-all cursor-pointer"
-            onClick={() => setIsExpanded(false)}
-          >
+        <div className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-lg flex items-center justify-center cursor-pointer" onClick={() => setIsExpanded(false)}>
+          <img src={bgImage} alt="Expanded" className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl animate-in fade-in zoom-in-95 duration-300" />
+          <button className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center bg-surface/50 hover:bg-surface/80 backdrop-blur-md rounded-full text-on-surface transition-all cursor-pointer" onClick={() => setIsExpanded(false)}>
             <span className="material-symbols-outlined">close</span>
           </button>
         </div>
