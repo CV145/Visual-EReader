@@ -427,6 +427,15 @@ export default function App() {
 
   const isCurrentPageBookmarked = bookmarks.some(b => b.cfi === currentCfi);
 
+  const toggleBookmark = async () => {
+    if (!currentCfi) return;
+    if (isCurrentPageBookmarked) {
+        await removeBookmark(currentCfi);
+    } else {
+        await addBookmark();
+    }
+  };
+
   const handleGenerate = async () => {
     if (!currentContextText) {
         alert("Please read a few pages first to gather context for the image!");
@@ -683,9 +692,9 @@ export default function App() {
           <button 
              onClick={toggleBookmark}
              disabled={!currentCfi}
-             className={`w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all cursor-pointer group ${isBookmarked ? 'bg-primary text-on-primary' : 'hover:bg-surface-variant hover:text-primary'}`}
+             className={`w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all cursor-pointer group ${isCurrentPageBookmarked ? 'bg-primary text-on-primary' : 'hover:bg-surface-variant hover:text-primary'}`}
           >
-             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">{isBookmarked ? 'bookmark_added' : 'bookmark_add'}</span>
+             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">{isCurrentPageBookmarked ? 'bookmark_added' : 'bookmark_add'}</span>
           </button>
           <button 
              onClick={() => nextPage()}
