@@ -601,12 +601,13 @@ export default function App() {
       try {
           if (!lyriaRef.current) {
                lyriaRef.current = new LyriaEngine();
+               lyriaRef.current.attachCallback((p) => setIsMusicPlaying(p));
           }
           const contextPayload = currentContextText || bookTitle || "Calm ambient background text";
           const nowPlaying = await lyriaRef.current.togglePlay(contextPayload);
           setIsMusicPlaying(nowPlaying);
       } catch(e: any) {
-          alert("Audio Initialization Failed: " + e.message);
+          alert("Audio Initialization Failed: " +  (e.message || "Cannot connect to Live Music socket."));
       }
   };
 

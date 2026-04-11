@@ -6,6 +6,11 @@ export class LyriaEngine {
     private audioCtx: AudioContext | null = null;
     private isPlaying = false;
     private nextPlayTime = 0;
+    private UIStateCallback: ((playing: boolean) => void) | null = null;
+
+    attachCallback(cb: (playing: boolean) => void) {
+        this.UIStateCallback = cb;
+    }
 
     constructor() {
         const key = localStorage.getItem('GEMINI_API_KEY');
@@ -37,10 +42,14 @@ export class LyriaEngine {
                 model: "models/lyria-realtime-exp",
                 callbacks: {
                     onmessage: (message: any) => this.handleMessage(message),
-                    onerror: (error: any) => console.error("Lyria error:", error),
-                    onclose: () => {
-                        console.log("Lyria streaming closed.");
+                    onerror: (error: any) => {
+                         console.error("Lyria error:", error);
+                         alert("Lyria Socket Error: " + (error.message || JSON.stringify(error)));
+                    },
+                    onclose: (e: any) => {
+                        console.log("Lyria streaming closed. Close event details:", e);
                         this.isPlaying = false;
+                        if (this.UIStateCallback) this.UIStateCallback(false);
                     }
                 }
             });
@@ -85,6 +94,7 @@ export class LyriaEngine {
 
     stop() {
         this.isPlaying = false;
+        if (this.UIStateCallback) this.UIStateCallback(false);
         if (this.session) {
             try {
                 this.session.stop();
