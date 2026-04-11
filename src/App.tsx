@@ -12,8 +12,6 @@ export default function App() {
   const [bgImage, setBgImage] = useState('https://lh3.googleusercontent.com/aida-public/AB6AXuBd5IsdtuXAefa1sVo5e0KSQOMgbc-FQHAE7KUQX1EnW6K8GRXOzBDNJn-U2nqluHhiNQOFPMCYjkNqdcTGiV-menxkJbW5T8HVMi2qalHeVEdy9mbVGLL-ESF0tp7wbf80Wyo47iImNnXPfgNfpKZt7V7TNSBGaTKZRlCHtkqfI1z2kH86RiaPLdWeCFELkpNVnEODNuQfWvEgKbfJuEDAkijghFuxBb--aNKMhFgDNG4-rR80RXhUp9X3YYAPpxnkYVUbWCvX1s5f');
   const [isLoadingImage, setIsLoadingImage] = useState(false);
   const [currentContextText, setCurrentContextText] = useState('');
-  const [progressText, setProgressText] = useState('0%');
-  const [progressWidth, setProgressWidth] = useState('0%');
   
   const viewerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<any>(null);
@@ -58,23 +56,27 @@ export default function App() {
     });
 
     bookRef.current.ready.then(() => {
-        // Generate locations for progress tracking (this might take a while on large books but is ok)
-        return bookRef.current.locations.generate(1600);
-    }).then((locations: any) => {
         setBookLoaded(true);
         if (viewerRef.current) {
             renditionRef.current = bookRef.current.renderTo(viewerRef.current, {
                 width: '100%',
                 height: '100%',
+                manager: 'continuous',
+                flow: 'paginated',
                 spread: 'none',
+                snap: true
             });
 
-            // Force white text + transparent backgrounds inside the epub iframe
+            // Force white text + transparent backgrounds inside the epub iframe, and prevent image pagination jamming
             renditionRef.current.themes.default({
                 '*': { 'color': '#ffffff !important', 'background': 'transparent !important' },
-                'body': { 'color': '#ffffff !important', 'background': 'transparent !important', 'margin': '0 !important', 'padding': '8px !important' },
+                'body': { 'margin': '0 !important', 'padding': '0 !important' },
                 'a': { 'color': '#c6c6c6 !important' },
-                'img': { 'background': 'transparent !important' },
+                'img': { 'background': 'transparent !important', 'max-width': '100% !important', 'max-height': '80vh !important', 'object-fit': 'contain !important', 'display': 'block !important', 'margin': '0 auto !important', 'page-break-inside': 'avoid !important', 'break-inside': 'avoid !important' },
+                'svg': { 'background': 'transparent !important', 'max-width': '100% !important', 'max-height': '80vh !important', 'width': '100% !important', 'height': 'auto !important', 'page-break-inside': 'avoid !important', 'break-inside': 'avoid !important' },
+                'figure': { 'page-break-inside': 'avoid !important', 'break-inside': 'avoid !important' },
+                'div': { 'max-width': '100% !important' },
+                'p': { 'max-width': '100% !important' }
             });
             
             // Try to load last location
@@ -86,51 +88,64 @@ export default function App() {
                }
             });
 
+            // Bind keyboard controls inside the iframe focus context
+            renditionRef.current.on('keyup', (e: KeyboardEvent) => {
+                if (e.key === 'ArrowRight') nextPage();
+                if (e.key === 'ArrowLeft') prevPage();
+            });
+            renditionRef.current.on('keydown', (e: KeyboardEvent) => {
+                if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') e.preventDefault();
+            });
+
             renditionRef.current.on('relocated', (location: any) => {
-                localforage.setItem('epubLocation', location.start.cfi);
-                
-                // Update progress
-                const percentage = bookRef.current.locations.percentageFromCfi(location.start.cfi);
-                const pctFormatted = Math.round(percentage * 100);
-                setProgressText(`${pctFormatted}%`);
-                setProgressWidth(`${pctFormatted}%`);
+                try {
+                    if (!location || !location.start || !location.start.cfi) return;
 
-                // Update Chapter Title
-                const toc = bookRef.current.navigation?.toc;
-                if (toc && toc.length > 0) {
-                   const findChapter = (items: any[], href: string): any => {
-                      for (const item of items) {
-                         if (href.includes(item.href)) return item;
-                         if (item.subitems) {
-                             const sub = findChapter(item.subitems, href);
-                             if (sub) return sub;
-                         }
-                      }
-                      return null;
-                   };
-                   
-                   const spineItem = bookRef.current.spine.get(location.start.cfi);
-                   if (spineItem) {
-                       const chapter = findChapter(toc, spineItem.href);
-                       if (chapter) setChapterTitle(chapter.label);
-                   }
-                }
-
-                // Extract visible text for Gemini context
-                setTimeout(() => {
-                    if (viewerRef.current) {
-                        const iframes = viewerRef.current.querySelectorAll('iframe');
-                        let text = '';
-                        iframes.forEach(iframe => {
-                            try {
-                                text += iframe.contentDocument?.body?.innerText + ' ';
-                            } catch (e) {} // Handle cross-origin if any
-                        });
-                        if (text.trim().length > 10) {
-                            setCurrentContextText(text.trim());
+                    localforage.setItem('epubLocation', location.start.cfi);
+                    
+                    // Update Chapter Title
+                    try {
+                        const toc = bookRef.current.navigation?.toc;
+                        if (toc && toc.length > 0) {
+                        const findChapter = (items: any[], href: string): any => {
+                            for (const item of items) {
+                                if (href.includes(item.href)) return item;
+                                if (item.subitems) {
+                                    const sub = findChapter(item.subitems, href);
+                                    if (sub) return sub;
+                                }
+                            }
+                            return null;
+                        };
+                        
+                        const spineItem = bookRef.current.spine.get(location.start.cfi);
+                        if (spineItem) {
+                            const chapter = findChapter(toc, spineItem.href);
+                            if (chapter) setChapterTitle(chapter.label);
                         }
-                    }
-                }, 100);
+                        }
+                    } catch (err) {}
+
+                    // Extract visible text for Gemini context
+                    setTimeout(() => {
+                        try {
+                            if (viewerRef.current) {
+                                const iframes = viewerRef.current.querySelectorAll('iframe');
+                                let text = '';
+                                iframes.forEach(iframe => {
+                                    try {
+                                        text += iframe.contentDocument?.body?.innerText + ' ';
+                                    } catch (e) {} // Handle cross-origin if any
+                                });
+                                if (text.trim().length > 10) {
+                                    setCurrentContextText(text.trim());
+                                }
+                            }
+                        } catch (err) {}
+                    }, 100);
+                } catch (generalError) {
+                    console.error("Error in relocated hook:", generalError);
+                }
             });
         }
     });
@@ -243,10 +258,7 @@ export default function App() {
         </button>
         
         <div className="flex flex-col items-center w-1/2 max-w-md">
-          <div className="w-full h-[2px] bg-surface-container-high mb-2 md:mb-3 rounded-full overflow-hidden">
-            <div className="h-full bg-primary-dim shadow-[0_0_8px_rgba(184,185,185,0.4)] transition-all duration-300" style={{ width: progressWidth }}></div>
-          </div>
-          <span className="text-[10px] font-medium font-label uppercase tracking-widest text-primary">{progressText}</span>
+           {/* Space reserved for future tools/widgets */}
         </div>
         
         <button onClick={nextPage} className="flex items-center gap-2 md:gap-3 text-on-surface-variant cursor-pointer hover:text-on-surface transition-colors">
