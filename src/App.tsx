@@ -70,6 +70,7 @@ export default function App() {
   const isInternalVnNavigation = useRef(false);
   const pendingTocHref = useRef<string | null>(null);
   const pendingCfi = useRef<string | null>(null);
+  const pendingBookmarkIndex = useRef<number | null>(null);
 
   const loadSettings = () => {
     setIsStretchImage(localStorage.getItem('STRETCH_IMAGE') === 'true');
@@ -410,9 +411,22 @@ export default function App() {
                                     const resolveTargetIndex = (graphRef: VnParagraph[]) => {
                                         // Specific Bookmark Jump interception overrides everything
                                         if (pendingCfi.current) {
-                                            const matchIdx = graphRef.findIndex((p: VnParagraph) => p.cfi === pendingCfi.current);
+                                            const cfiString = pendingCfi.current;
+                                            const explicitIdx = pendingBookmarkIndex.current;
+                                            
+                                            // Release locks IMMEDIATELY
                                             pendingCfi.current = null;
+                                            pendingBookmarkIndex.current = null;
+
+                                            if (explicitIdx !== null && explicitIdx !== undefined) {
+                                                 const mappedIdx = explicitIdx - 1; // 1-indexed UI var down to 0-indexed array
+                                                 if (mappedIdx >= 0 && mappedIdx < graphRef.length) return mappedIdx;
+                                            }
+
+                                            // Fallback to absolute CFI string match for legacy bookmarks
+                                            const matchIdx = graphRef.findIndex((p: VnParagraph) => p.cfi === cfiString);
                                             if (matchIdx !== -1) return matchIdx;
+                                            
                                             return 0;
                                         }
                                         
@@ -509,9 +523,10 @@ export default function App() {
     setIsDrawerOpen(false);
   };
 
-  const navigateToCfi = (cfi: string) => {
-    pendingCfi.current = cfi;
-    renditionRef.current?.display(cfi);
+  const navigateToBookmark = (bm: Bookmark) => {
+    pendingCfi.current = bm.cfi;
+    pendingBookmarkIndex.current = bm.paragraphIndex ?? null;
+    renditionRef.current?.display(bm.cfi);
     setIsDrawerOpen(false);
   };
 
@@ -873,7 +888,7 @@ export default function App() {
                   {bookmarks.map((bm, idx) => (
                     <li key={idx} className="flex items-center gap-2 group">
                       <button
-                        onClick={() => navigateToCfi(bm.cfi)}
+                        onClick={() => navigateToBookmark(bm)}
                         className="flex-1 text-left px-3 py-2.5 rounded-lg text-on-surface hover:bg-surface-container-highest hover:text-primary transition-colors cursor-pointer truncate"
                       >
                         <span className="text-sm font-body block truncate">
