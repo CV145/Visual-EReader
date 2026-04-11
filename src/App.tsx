@@ -32,7 +32,7 @@ export default function App() {
   const renditionRef = useRef<any>(null);
   
   const pageHistoryRef = useRef<string[]>([]);
-  const lastChapterRef = useRef<string>('');
+  const lastSpineHrefRef = useRef<string>('');
 
   const isMountedPhase = useRef(false);
 
@@ -149,30 +149,31 @@ export default function App() {
                     
                     // Update Chapter Title and clear context on major jump
                     try {
-                        const toc = bookRef.current.navigation?.toc;
-                        if (toc && toc.length > 0) {
-                        const findChapter = (items: any[], href: string): any => {
-                            for (const item of items) {
-                                if (href.includes(item.href)) return item;
-                                if (item.subitems) {
-                                    const sub = findChapter(item.subitems, href);
-                                    if (sub) return sub;
-                                }
-                            }
-                            return null;
-                        };
-                        
                         const spineItem = bookRef.current.spine.get(location.start.cfi);
                         if (spineItem) {
-                            const chapter = findChapter(toc, spineItem.href);
-                            if (chapter) {
-                                if (lastChapterRef.current !== chapter.label) {
-                                    pageHistoryRef.current = []; // Flush context on new chapter
-                                    lastChapterRef.current = chapter.label;
-                                }
-                                setChapterTitle(chapter.label);
+                            if (lastSpineHrefRef.current !== spineItem.href) {
+                                pageHistoryRef.current = []; // Hard flush exactly on the first page of a new chapter file
+                                lastSpineHrefRef.current = spineItem.href;
                             }
-                        }
+
+                            const toc = bookRef.current.navigation?.toc;
+                            if (toc && toc.length > 0) {
+                                const findChapter = (items: any[], href: string): any => {
+                                    for (const item of items) {
+                                        if (href.includes(item.href)) return item;
+                                        if (item.subitems) {
+                                            const sub = findChapter(item.subitems, href);
+                                            if (sub) return sub;
+                                        }
+                                    }
+                                    return null;
+                                };
+                                
+                                const chapter = findChapter(toc, spineItem.href);
+                                if (chapter) {
+                                    setChapterTitle(chapter.label);
+                                }
+                            }
                         }
                     } catch (err) {}
 
