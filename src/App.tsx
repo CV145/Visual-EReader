@@ -39,7 +39,6 @@ export default function App() {
   const bookRef = useRef<any>(null);
   const renditionRef = useRef<any>(null);
   
-  const pageHistoryRef = useRef<string[]>([]);
   const lastSpineHrefRef = useRef<string>('');
 
   const isMountedPhase = useRef(false);
@@ -79,7 +78,6 @@ export default function App() {
       if (renditionRef.current) renditionRef.current.destroy();
       if (bookRef.current) bookRef.current.destroy();
       bookRef.current = null;
-      pageHistoryRef.current = []; // Clear context on new book
       
       initEpub(arrayBuffer);
     }
@@ -169,7 +167,6 @@ export default function App() {
                         const spineItem = bookRef.current.spine.get(location.start.cfi);
                         if (spineItem) {
                             if (lastSpineHrefRef.current !== spineItem.href) {
-                                pageHistoryRef.current = []; // Hard flush exactly on the first page of a new chapter file
                                 lastSpineHrefRef.current = spineItem.href;
                             }
 
@@ -194,31 +191,54 @@ export default function App() {
                         }
                     } catch (err) {}
 
-                    // Extract visible text for Gemini context
+                    // Extract visible text precisely bounded by CFI
                     setTimeout(() => {
                         try {
-                            if (viewerRef.current) {
-                                const iframes = viewerRef.current.querySelectorAll('iframe');
-                                let text = '';
-                                iframes.forEach(iframe => {
-                                    try {
-                                        text += iframe.contentDocument?.body?.innerText + ' ';
-                                    } catch (e) {} // Handle cross-origin if any
-                                });
-                                if (text.trim().length > 10) {
-                                    const cleanedText = text.trim();
-                                    // Prevent duplicate pushes if the user is just resizing window
-                                    if (pageHistoryRef.current[pageHistoryRef.current.length - 1] !== cleanedText) {
-                                        pageHistoryRef.current.push(cleanedText);
-                                        if (pageHistoryRef.current.length > 5) {
-                                            pageHistoryRef.current.shift(); // Keep last 5 pages
-                                        }
+                            const startRange = renditionRef.current.getRange(location.start.cfi);
+                            const endRange = renditionRef.current.getRange(location.end.cfi);
+                            
+                            if (startRange && endRange) {
+                                const doc = startRange.startContainer.ownerDocument;
+                                const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+                                
+                                let precedingText = '';
+                                let currentPageText = '';
+                                let inCurrentPage = false;
+                                
+                                let currentNode: Node | null = walker.currentNode;
+                                
+                                while (currentNode) {
+                                    // Start tracking current page text when we reach the specific element bounding the screen
+                                    if (currentNode === startRange.startContainer) {
+                                        inCurrentPage = true;
                                     }
-                                    setCurrentContextText(pageHistoryRef.current.join('\n\n---\n\n'));
+
+                                    if (inCurrentPage) {
+                                        currentPageText += currentNode.textContent + ' ';
+                                        if (currentNode === endRange.startContainer) break;
+                                    } else {
+                                        precedingText += currentNode.textContent + ' ';
+                                    }
+                                    
+                                    currentNode = walker.nextNode();
+                                }
+
+                                const cleanedCurrent = currentPageText.replace(/\s+/g, ' ').trim();
+                                const cleanedPreceding = precedingText.replace(/\s+/g, ' ').trim();
+                                
+                                // Slice the last ~1250 words (~5 pages) of precedent text to strictly map context without overflowing tokens
+                                const precedingWords = cleanedPreceding.split(' ');
+                                const recentPreceding = precedingWords.slice(-1250).join(' ');
+
+                                const finalPayload = (recentPreceding ? recentPreceding + '\n\n---\n\n' : '') + cleanedCurrent;
+                                if (finalPayload.length > 10) {
+                                    setCurrentContextText(finalPayload);
                                 }
                             }
-                        } catch (err) {}
-                    }, 100);
+                        } catch (err) {
+                            console.error("Context Extraction Error:", err);
+                        }
+                    }, 300);
                 } catch (generalError) {
                     console.error("Error in relocated hook:", generalError);
                 }

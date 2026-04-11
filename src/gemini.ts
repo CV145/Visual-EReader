@@ -32,6 +32,10 @@ export async function generateAmbientImage(promptContext: string): Promise<strin
   const environmentSuffix = includeCharacters ? "" : " No people, no characters, no figures. Environment only.";
   const directPrompt = `${styleDirective}. Emphasize lighting, atmosphere, and colors. ${characterDirective}${environmentSuffix}\n\nStory Excerpt:\n"${promptContext}"`;
 
+  console.log("------- SENDING TO GEMINI -------");
+  console.log(directPrompt);
+  console.log("---------------------------------");
+
   try {
     const imageResponse = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
