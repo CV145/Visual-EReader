@@ -360,25 +360,27 @@ export default function App() {
                             
                             // Visual Novel: Full Chapter Graph Reconstruction
                             if (isInternalVnNavigation.current) {
-                                // Break looping: epubjs navigated identically where we told it to!
                                 isInternalVnNavigation.current = false;
                                 return;
                             }
                             
                             setTimeout(() => {
                                 try {
-                                    const contents = renditionRef.current.getContents()?.[0];
-                                    if (!contents || !contents.document) return;
+                                    const startRange = renditionRef.current.getRange(location.start.cfi);
+                                    if (!startRange) return;
+
+                                    const activeDoc = startRange.startContainer.ownerDocument;
+                                    const allContents = renditionRef.current.getContents() || [];
+                                    const correctContents = allContents.find((c: any) => c.document === activeDoc) || allContents[0];
+                                    
+                                    if (!correctContents || !activeDoc) return;
 
                                     let targetElement: Node | null = null;
-                                    const startRange = renditionRef.current.getRange(location.start.cfi);
-                                    if (startRange) {
-                                        targetElement = startRange.startContainer.nodeType === Node.TEXT_NODE 
+                                    targetElement = startRange.startContainer.nodeType === Node.TEXT_NODE 
                                             ? startRange.startContainer.parentElement 
                                             : startRange.startContainer;
-                                    }
 
-                                    const rawElements = contents.document.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
+                                    const rawElements = activeDoc.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
                                     
                                     const resolveTargetIndex = () => {
                                         if (!targetElement) return 0;
@@ -416,7 +418,7 @@ export default function App() {
                                         rawElements.forEach(element => {
                                             const txt = element.textContent?.trim();
                                             if (txt && txt.length > 5) {
-                                                const nativeCfi = contents.cfiFromNode(element);
+                                                const nativeCfi = correctContents.cfiFromNode(element);
                                                 if (nativeCfi) {
                                                     chapterGraph.push({ text: txt, cfi: nativeCfi });
                                                 }
