@@ -60,3 +60,32 @@ export async function generateAmbientImage(promptContext: string): Promise<strin
     throw error;
   }
 }
+
+export async function analyzeMusicalSentiment(paragraphsText: string): Promise<string> {
+   const ai = getClient();
+   
+   const systemPrompt = `You are a talented Cinematic Soundtrack Director. Your job is to analyze the following story excerpt and determine the PERFECT background music for the scene.
+   Output EXACTLY one single line of comma-separated musical keywords describing the genre, mood, tempo, and instruments. 
+   Do NOT output conversational text, explanations, or quotes. Do NOT include lyrics or vocals. 
+   Examples of valid outputs:
+   - "Fast-paced tension, intense orchestral strings, racing heartbeat, dark gritty rock, heavy electric guitar"
+   - "Calm, ambient drones, ethereal choir, very slow tempo, relaxing, mystical"
+   - "Upbeat, cheerful pop, bouncy piano, light acoustic guitar, rhythmic"
+   
+   Story Excerpt:
+   "${paragraphsText}"`;
+
+   try {
+       const response = await ai.models.generateContent({
+           model: 'gemini-2.5-flash',
+           contents: systemPrompt
+       });
+       
+       const text = response.text || "ambient background music, cinematic";
+       console.log("Sentiment Generated:", text);
+       return text;
+   } catch (error) {
+       console.error("Error analyzing musical sentiment:", error);
+       return "ambient background music, calm, cinematic"; // Safe fallback
+   }
+}

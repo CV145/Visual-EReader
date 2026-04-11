@@ -74,12 +74,10 @@ export class LyriaEngine {
     async setPrompts(prompt: string) {
         if (!this.session || !this.isPlaying) return;
         
-        // Truncate prompt to first 300 chars and prepend strict instrumental reading guardrails restricting high intensity tempos
-        const safePrompt = `Extremely calm, ambient background reading music, low intensity, soft drones, slow tempo, no percussion, relaxing, no vocals. Theme: ` + prompt.slice(0, 300);
+        // Push the dynamic sentiment keywords from Flash into Lyria, anchoring them purely to instrumental rules
+        const safePrompt = `Instrumental background music, absolutely continuous, no vocals. Keywords: ` + prompt.slice(0, 300);
         
         try {
-            // Note: In Javascript SDK, the payload might slightly differ mathematically than python.
-            // Following docs: { weightedPrompts: [ { text: "...", weight: 1.0 } ] }
             await this.session.setWeightedPrompts({
                 weightedPrompts: [
                    { text: safePrompt, weight: 1.0 }

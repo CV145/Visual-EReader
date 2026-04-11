@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import localforage from 'localforage';
 import { SettingsModal } from './SettingsModal';
-import { generateAmbientImage } from './gemini';
+import { generateAmbientImage, analyzeMusicalSentiment } from './gemini';
 import { LyriaEngine } from './lyriaEngine';
 
 interface Bookmark {
@@ -219,13 +219,19 @@ export default function App() {
               localforage.setItem('epubLocation', activeNode.cfi);
           }
 
-          const sliceAhead = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 40);
-          const rawText = sliceAhead.map(p => p.text).join(' ');
+          // Lookahead exactly 20 paragraphs for contextual awareness
+          const sliceAhead = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 20);
+          const rawText = sliceAhead.map((p: any) => p.text).join(' ');
           const finalPayload = rawText.split(' ').slice(0, 1500).join(' ');
           if (finalPayload.length > 10) {
               setCurrentContextText(finalPayload);
               if (isMusicPlaying && lyriaRef.current && (activeParagraphIndex % 10 === 0)) {
-                   lyriaRef.current.setPrompts(finalPayload);
+                   // Asynchronously orchestrate sentiment without locking UI thread
+                   analyzeMusicalSentiment(finalPayload).then((sentiment) => {
+                       if (lyriaRef.current && isMusicPlaying) {
+                           lyriaRef.current.setPrompts(sentiment);
+                       }
+                   });
               }
           }
       }
