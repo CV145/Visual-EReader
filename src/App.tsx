@@ -35,7 +35,15 @@ export default function App() {
   const vnTextBoxRef = useRef<HTMLDivElement>(null);
   
   // Font Styling State
-  const [fontSize, setFontSize] = useState(100);
+  const [fontSize, setFontSizeState] = useState(100);
+
+  const setFontSize = (size: number | ((s: number) => number)) => {
+      setFontSizeState(prev => {
+          const newSize = typeof size === 'function' ? size(prev) : size;
+          localStorage.setItem('FONT_SIZE', newSize.toString());
+          return newSize;
+      });
+  };
 
   // TOC + Bookmarks + Gallery
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -56,6 +64,8 @@ export default function App() {
 
   const loadSettings = () => {
     setIsVnMode(localStorage.getItem('VN_MODE') === 'true');
+    const savedFontSize = localStorage.getItem('FONT_SIZE');
+    if (savedFontSize) setFontSizeState(parseInt(savedFontSize, 10));
   };
 
   useEffect(() => {
@@ -215,11 +225,14 @@ export default function App() {
         if (saved) setBookmarks(saved as Bookmark[]);
     });
 
-    // Load gallery for specific book
+    // Load gallery for specific book and set the most recent image natively!
     bookRef.current.loaded.metadata.then((metadata: any) => {
         const title = metadata.title || 'Unknown Title';
         localforage.getItem(`gallery_${title}`).then((savedGallery) => {
-           if (savedGallery) setGallery(savedGallery as GalleryImage[]);
+           if (savedGallery && Array.isArray(savedGallery) && savedGallery.length > 0) {
+              setGallery(savedGallery as GalleryImage[]);
+              setBgImage(savedGallery[0].base64); // Boot directly into latest visual state
+           }
         });
     });
 
@@ -821,15 +834,15 @@ export default function App() {
                        No images generated for this book yet.<br/>Click the sparkle button overlay to visualize a scene!
                     </div>
                   )}
-                  {gallery.map((img) => (
+                   {gallery.map((img) => (
                     <div key={img.id} className="flex flex-col gap-1 group relative">
                       <div 
                          className="aspect-video w-full rounded-lg overflow-hidden border border-outline-variant/30 cursor-pointer hover:border-primary transition-colors flex bg-surface-container-highest items-center justify-center relative"
-                         onClick={() => { setBgImage(img.base64); setIsExpanded(true); setIsDrawerOpen(false); }}
+                         onClick={() => { setBgImage(img.base64); setIsDrawerOpen(false); }}
                       >
                          <img src={img.base64} alt={img.chapter} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
-                            <span className="material-symbols-outlined text-3xl">fullscreen</span>
+                            <span className="material-symbols-outlined text-3xl">wallpaper</span>
                          </div>
                       </div>
                       <span className="text-[10px] text-on-surface-variant font-label truncate px-1 text-center font-bold">{img.chapter}</span>
