@@ -31,7 +31,7 @@ export class LyriaEngine {
 
     async start(initialPrompt: string) {
         if (!this.audioCtx) {
-            this.audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 44100 });
+            this.audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
         }
         if (this.audioCtx.state === 'suspended') await this.audioCtx.resume();
         this.nextPlayTime = this.audioCtx.currentTime;
@@ -58,9 +58,7 @@ export class LyriaEngine {
             await this.session.setMusicGenerationConfig({
                 musicGenerationConfig: {
                     bpm: 90,
-                    temperature: 1.0,
-                    audioFormat: "pcm16",
-                    sampleRateHz: 44100,
+                    temperature: 1.0
                 }
             });
 
@@ -138,7 +136,7 @@ export class LyriaEngine {
 
             if (numFrames <= 0) return;
 
-            const audioBuffer = this.audioCtx.createBuffer(2, numFrames, 44100);
+            const audioBuffer = this.audioCtx.createBuffer(2, numFrames, 48000);
             const leftChannel = audioBuffer.getChannelData(0);
             const rightChannel = audioBuffer.getChannelData(1);
 
