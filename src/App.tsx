@@ -33,6 +33,9 @@ export default function App() {
   const [activeParagraphIndex, setActiveParagraphIndex] = useState(0);
   const [isVnTextHidden, setIsVnTextHidden] = useState(false);
   const vnTextBoxRef = useRef<HTMLDivElement>(null);
+  
+  // Font Styling State
+  const [fontSize, setFontSize] = useState(100);
 
   // TOC + Bookmarks + Gallery
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -167,6 +170,13 @@ export default function App() {
       }
   }, [activeParagraphIndex, vnParagraphs]);
 
+  // Re-apply font size when it changes dynamically
+  useEffect(() => {
+     if (renditionRef.current) {
+         renditionRef.current.themes.fontSize(`${fontSize}%`);
+     }
+  }, [fontSize]);
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -236,6 +246,7 @@ export default function App() {
                 'div': { 'max-width': '100% !important' },
                 'p': { 'max-width': '100% !important' }
             });
+            renditionRef.current.themes.fontSize(`${fontSize}%`);
             
             // Try to load last location, fallback to cover if corrupted
             localforage.getItem('epubLocation').then((loc) => {
@@ -546,14 +557,14 @@ export default function App() {
             </section>
           </main>
       ) : (
-          <main className="fixed inset-0 z-40 bg-black">
-              <div className="absolute inset-0 bg-cover bg-center transition-transform duration-[120s] ease-linear scale-110" style={{ backgroundImage: `url(${bgImage})` }} />
+          <main className="fixed top-14 md:top-20 bottom-14 md:bottom-20 left-0 right-0 z-0 bg-black flex items-center justify-center overflow-hidden">
+              <div className="absolute inset-0 bg-contain bg-center bg-no-repeat transition-transform duration-[120s] ease-linear scale-100" style={{ backgroundImage: `url(${bgImage})` }} />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
               <div className="absolute inset-0 p-8 opacity-0 pointer-events-none -z-10" ref={viewerRef}></div>
               {/* Visual Novel UI Overlays */}
               {bookLoaded && (
                   <>
-                     <div className="absolute top-20 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
+                     <div className="absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
                          <button 
                             onClick={handleGenerate}
                             disabled={isLoadingImage}
@@ -576,13 +587,16 @@ export default function App() {
                      </div>
 
                      {!isVnTextHidden && (
-                       <div className="fixed bottom-20 md:bottom-28 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-40 bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col transform transition-transform animate-in slide-in-from-bottom-5 h-[30vh]">
+                       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-40 bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col transform transition-transform animate-in slide-in-from-bottom-5 h-[30vh]">
                           <div className="flex justify-between items-center mb-4 shrink-0">
                              <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-primary/10 rounded-full border border-primary/20 shadow-inner">{chapterTitle}</span>
                              <span className="text-white/60 text-xs font-mono tracking-widest bg-black/50 px-3 py-1 rounded-full border border-white/5">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
                           </div>
                           <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto pr-4 custom-scrollbar" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
-                             <p className="text-gray-100 font-body text-xl md:text-2xl leading-[1.8] tracking-wide shadow-none p-1">
+                             <p 
+                                className="text-gray-100 font-body leading-[1.8] tracking-wide shadow-none p-1 transition-all duration-300"
+                                style={{ fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem` }}
+                             >
                                  {vnParagraphs.length > 0 ? vnParagraphs[activeParagraphIndex] : "Loading content..."}
                              </p>
                           </div>
@@ -594,36 +608,93 @@ export default function App() {
       )}
 
       {/* BottomNavBar */}
-      <footer className="fixed bottom-0 left-0 w-full z-50 h-14 md:h-20 bg-surface-container-low flex justify-between items-center px-4 md:px-12 border-t border-outline-variant/15">
-        <button onClick={prevPage} className="flex items-center gap-2 md:gap-3 text-on-surface-variant cursor-pointer hover:text-on-surface transition-colors">
-          <div className="w-8 h-8 flex items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-high">
-            <span className="material-symbols-outlined text-sm">keyboard_arrow_left</span>
-          </div>
-          <span className="text-[10px] font-medium uppercase tracking-widest hidden md:inline">Prev</span>
-        </button>
+      {/* BottomNavBar */}
+      <footer className="fixed bottom-0 left-0 w-full z-50 h-14 md:h-20 bg-surface-container-low flex justify-between items-center px-4 md:px-12 border-t border-outline-variant/15 text-white/90">
         
-        <div className="flex items-center justify-center">
-          <button
-            onClick={addBookmark}
-            disabled={!bookLoaded || isCurrentPageBookmarked}
-            title={isCurrentPageBookmarked ? 'Page bookmarked' : 'Bookmark this page'}
-            className="flex items-center gap-2 text-on-surface-variant hover:text-primary cursor-pointer transition-colors disabled:opacity-50"
+        {/* Playback & Layout Controls */}
+        <div className="flex items-center gap-1 md:gap-6">
+          <button 
+             onClick={() => { setDrawerTab('toc'); setIsDrawerOpen(true); }}
+             className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group"
+             title="Table of Contents"
           >
-            <span className="material-symbols-outlined text-xl">
-              {isCurrentPageBookmarked ? 'bookmark_added' : 'bookmark_add'}
-            </span>
-            <span className="text-[10px] font-medium uppercase tracking-widest hidden md:inline">
-              {isCurrentPageBookmarked ? 'Saved' : 'Bookmark'}
-            </span>
+             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">format_list_bulleted</span>
+          </button>
+          
+          <button 
+             onClick={() => { setDrawerTab('bookmarks'); setIsDrawerOpen(true); }}
+             className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group"
+             title="Bookmarks"
+          >
+             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">bookmarks</span>
+          </button>
+
+          <button 
+             onClick={() => { setDrawerTab('gallery'); setIsDrawerOpen(true); }}
+             className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group"
+             title="Generated Gallery"
+          >
+             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">photo_library</span>
+          </button>
+        </div>
+
+        {/* Font Controls */}
+        <div className="flex items-center gap-2 bg-surface-variant/40 rounded-full px-2 py-1 border border-outline-variant/20 mx-2 md:mx-4">
+           <button 
+             onClick={() => setFontSize(f => Math.max(50, f - 10))}
+             disabled={!bookLoaded}
+             className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-surface-variant hover:text-primary transition-all cursor-pointer"
+             title="Decrease Font Size"
+           >
+             <span className="font-label font-bold text-sm select-none">A-</span>
+           </button>
+           <span className="text-xs font-mono w-10 text-center opacity-70 select-none">{(fontSize / 100).toFixed(1)}x</span>
+           <button 
+             onClick={() => setFontSize(f => Math.min(250, f + 10))}
+             disabled={!bookLoaded}
+             className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-surface-variant hover:text-primary transition-all cursor-pointer"
+             title="Increase Font Size"
+           >
+             <span className="font-label font-bold text-sm select-none">A+</span>
+           </button>
+        </div>
+
+        {/* Global Progress Bar Simulation */}
+        <div className="hidden lg:flex flex-1 max-w-xl mx-8 h-1.5 bg-surface-container-high rounded-full overflow-hidden items-center group cursor-pointer" onClick={(e) => {
+           // Click to seek simulation
+           if (renditionRef.current) {
+               const rect = e.currentTarget.getBoundingClientRect();
+               const percent = (e.clientX - rect.left) / rect.width;
+               // Note: epub.js can't always natively seek by global float percentage reliably depending on book metrics.
+               // However, `rendition.display(percent)` functions if locations are generated, or `book.locations.cfiFromPercentage(percent)`
+           }
+        }}>
+           <div className="h-full bg-primary/70 group-hover:bg-primary transition-colors" style={{ width: '0%' }}></div>
+        </div>
+
+        {/* Forward & Reverse Overlaid Nav Controls */}
+        <div className="flex items-center gap-1 md:gap-4 shrink-0">
+          <button 
+             onClick={() => prevPage()}
+             className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group active:bg-primary/20"
+          >
+             <span className="material-symbols-outlined text-[20px] md:text-3xl font-light transform group-active:-translate-x-1 transition-transform">chevron_left</span>
+          </button>
+          <button 
+             onClick={toggleBookmark}
+             disabled={!currentCfi}
+             className={`w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all cursor-pointer group ${isBookmarked ? 'bg-primary text-on-primary' : 'hover:bg-surface-variant hover:text-primary'}`}
+          >
+             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">{isBookmarked ? 'bookmark_added' : 'bookmark_add'}</span>
+          </button>
+          <button 
+             onClick={() => nextPage()}
+             className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group active:bg-primary/20"
+          >
+             <span className="material-symbols-outlined text-[20px] md:text-3xl font-light transform group-active:translate-x-1 transition-transform">chevron_right</span>
           </button>
         </div>
         
-        <button onClick={nextPage} className="flex items-center gap-2 md:gap-3 text-on-surface-variant cursor-pointer hover:text-on-surface transition-colors">
-          <span className="text-[10px] font-medium uppercase tracking-widest hidden md:inline">Next</span>
-          <div className="w-8 h-8 flex items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-high">
-            <span className="material-symbols-outlined text-sm">keyboard_arrow_right</span>
-          </div>
-        </button>
       </footer>
       
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
