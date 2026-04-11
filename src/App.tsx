@@ -33,7 +33,6 @@ export default function App() {
   const [isExpanded, setIsExpanded] = useState(false);
   
   // Visual Novel Mode State
-  const [isVnMode, setIsVnMode] = useState(false);
   const [isStretchImage, setIsStretchImage] = useState(false);
   const [vnParagraphs, setVnParagraphs] = useState<VnParagraph[]>([]);
   const [activeParagraphIndex, setActiveParagraphIndex] = useState(0);
@@ -71,7 +70,6 @@ export default function App() {
   const pendingTocHref = useRef<string | null>(null);
 
   const loadSettings = () => {
-    setIsVnMode(localStorage.getItem('VN_MODE') === 'true');
     setIsStretchImage(localStorage.getItem('STRETCH_IMAGE') === 'true');
     const savedFontSize = localStorage.getItem('FONT_SIZE');
     if (savedFontSize) setFontSizeState(parseInt(savedFontSize, 10));
@@ -88,11 +86,6 @@ export default function App() {
     });
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // General Navigation
-      if (!isVnMode) {
-         if (e.key === 'ArrowRight') nextPage();
-         if (e.key === 'ArrowLeft') prevPage();
-      } else {
          // VN Mode Navigation
          if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') {
              e.preventDefault();
@@ -115,7 +108,6 @@ export default function App() {
          if (e.key.toLowerCase() === 'h') {
             setIsVnTextHidden(prev => !prev);
          }
-      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -136,18 +128,15 @@ export default function App() {
             const rightPressed = gp.buttons[15]?.pressed; 
 
             if (aPressed && !lastButtonAPress) {
-                if (isVnMode) advanceVnDialogue();
-                else nextPage();
+                advanceVnDialogue();
             }
             if (rightPressed && !lastDPadRight) {
-                if (isVnMode) advanceVnDialogue();
-                else nextPage();
+                advanceVnDialogue();
             }
             // Add backwards D-Pad Left mapping (button 14)
             const leftPressed = gp.buttons[14]?.pressed;
             if (leftPressed && !lastDPadLeft) {
-                if (isVnMode) previousVnDialogue();
-                else prevPage();
+                previousVnDialogue();
             }
 
             lastButtonAPress = Object.is(aPressed, true);
@@ -163,7 +152,7 @@ export default function App() {
        window.removeEventListener('keydown', handleKeyDown);
        cancelAnimationFrame(animationFrame);
     };
-  }, [isVnMode, vnParagraphs, activeParagraphIndex]);
+  }, [vnParagraphs, activeParagraphIndex]);
 
   const advanceVnDialogue = useCallback(() => {
      if (activeParagraphIndex < vnParagraphs.length - 1) {
@@ -290,7 +279,7 @@ export default function App() {
                 width: '100%',
                 height: '100%',
                 manager: 'continuous',
-                flow: 'paginated',
+                flow: 'scrolled-doc',
                 spread: 'none',
                 snap: true
             });
@@ -494,8 +483,8 @@ export default function App() {
     });
   };
 
-  const nextPage = () => renditionRef.current?.next();
-  const prevPage = () => renditionRef.current?.prev();
+  const nextPage = advanceVnDialogue;
+  const prevPage = previousVnDialogue;
 
   const navigateToHref = (href: string) => {
     pendingTocHref.current = href;
@@ -621,106 +610,71 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Layout - vertical on mobile, horizontal on lg */}
-      {!isVnMode ? (
-          <main className="flex flex-col lg:flex-row fixed top-14 md:top-20 bottom-14 md:bottom-20 left-0 right-0 overflow-hidden">
-            <section className="order-first lg:order-last w-full lg:w-[40%] h-[25vh] lg:h-full relative overflow-hidden atmospheric-glow shrink-0 group">
-              <img 
-                key={bgImage}
-                alt="Cinematic View" 
-                className="absolute inset-0 w-full h-full object-cover opacity-80 animate-in fade-in duration-1000" 
-                src={bgImage}
-              />
-              <div className="absolute inset-0 bg-gradient-to-b lg:bg-gradient-to-l from-transparent via-surface/20 to-surface pointer-events-none"></div>
-              <div className="absolute bottom-3 right-3 z-20 flex gap-2 opacity-60 group-hover:opacity-100 transition-opacity duration-300">
-                 <button 
-                   onClick={handleGenerate}
-                   disabled={isLoadingImage || !bookLoaded}
-                   title={isLoadingImage ? 'Generating...' : 'Generate Scene'}
-                   className="w-9 h-9 flex items-center justify-center bg-surface/70 hover:bg-surface/90 backdrop-blur-md rounded-lg border border-outline-variant/30 text-on-surface shadow-lg transition-all hover:scale-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                 >
-                    <span className="material-symbols-outlined text-lg">{isLoadingImage ? 'hourglass_empty' : 'auto_awesome'}</span>
-                 </button>
-                 <button 
-                   onClick={() => setIsExpanded(true)}
-                   title="Expand Image"
-                   className="w-9 h-9 flex items-center justify-center bg-surface/70 hover:bg-surface/90 backdrop-blur-md rounded-lg border border-outline-variant/30 text-on-surface shadow-lg transition-all hover:scale-110 active:scale-95 cursor-pointer"
-                 >
-                    <span className="material-symbols-outlined text-lg">fullscreen</span>
-                 </button>
-              </div>
-              {isLoadingImage && (
-                <div className="absolute inset-0 flex items-center justify-center z-10 bg-surface/30 backdrop-blur-sm pointer-events-none">
-                  <span className="material-symbols-outlined text-4xl text-on-surface animate-spin">progress_activity</span>
-                </div>
-              )}
-            </section>
-            <section className="order-last lg:order-first w-full lg:w-[60%] flex-1 min-h-0 bg-surface-container-low px-4 md:px-24 py-4 md:py-8 relative">
-              <div className="max-w-prose mx-auto absolute inset-0 md:inset-y-8 md:inset-x-24 text-white reading-container overflow-hidden">
-                 <div ref={viewerRef} className="absolute inset-0 font-body text-base md:text-[1.15rem] leading-[1.7] md:leading-[1.8] text-justify select-none" />
-                 {!bookLoaded && (
-                     <div className="absolute inset-0 flex flex-col items-center justify-center text-on-surface-variant z-10 pointer-events-none">
-                        <span className="material-symbols-outlined text-5xl md:text-6xl mb-4 opacity-50">auto_stories</span>
-                        <p className="font-headline tracking-widest uppercase text-sm md:text-base">Select an EPUB to begin</p>
-                     </div>
-                 )}
-              </div>
-              <div className="hidden lg:block absolute top-0 right-0 h-full w-32 bg-gradient-to-r from-transparent to-surface/60 pointer-events-none"></div>
-            </section>
-          </main>
-      ) : (
-          <main className="fixed top-14 md:top-20 bottom-14 md:bottom-20 left-0 right-0 z-0 bg-black flex items-center justify-center overflow-hidden">
-              <div 
-                  className="absolute inset-0 bg-center bg-no-repeat transition-transform duration-[120s] ease-linear scale-100" 
-                  style={{ backgroundImage: `url(${bgImage})`, backgroundSize: isStretchImage ? '100% 100%' : 'contain' }} 
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
-              <div className="absolute inset-0 p-8 opacity-0 pointer-events-none -z-10" ref={viewerRef}></div>
-              {/* Visual Novel UI Overlays */}
-              {bookLoaded && (
-                  <>
-                     <div className="absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
-                         <button 
-                            onClick={handleGenerate}
-                            disabled={isLoadingImage}
-                            className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 disabled:opacity-60 disabled:cursor-not-allowed"
-                            title={isLoadingImage ? "Generating Image..." : "Generate Image"}
-                          >
-                           {isLoadingImage ? (
-                               <span className="material-symbols-outlined animate-spin text-shadow">progress_activity</span>
-                           ) : (
-                               <span className="material-symbols-outlined text-shadow">magic_button</span>
-                           )}
-                         </button>
-                         <button 
-                            onClick={() => setIsVnTextHidden(!isVnTextHidden)}
-                            className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
-                            title="Toggle TextBox (H)"
-                          >
-                           <span className="material-symbols-outlined text-shadow">{isVnTextHidden ? 'visibility_off' : 'visibility'}</span>
-                         </button>
-                     </div>
+      {/* Main Layout - Pure Visual Novel Mode */}
+      <main className="fixed top-14 md:top-20 bottom-14 md:bottom-20 left-0 right-0 z-0 bg-black flex items-center justify-center overflow-hidden">
+          <div 
+              className="absolute inset-0 bg-center bg-no-repeat transition-transform duration-[120s] ease-linear scale-100" 
+              style={{ backgroundImage: `url(${bgImage})`, backgroundSize: isStretchImage ? '100% 100%' : 'contain' }} 
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
+          <div className="absolute inset-0 p-8 opacity-0 pointer-events-none -z-10" ref={viewerRef}></div>
+          
+          {/* Visual Novel UI Overlays */}
+          {bookLoaded ? (
+              <>
+                 <div className="absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
+                     <button 
+                        onClick={handleGenerate}
+                        disabled={isLoadingImage}
+                        className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 disabled:opacity-60 disabled:cursor-not-allowed"
+                        title={isLoadingImage ? "Generating Image..." : "Generate Image"}
+                      >
+                       {isLoadingImage ? (
+                           <span className="material-symbols-outlined animate-spin text-shadow">progress_activity</span>
+                       ) : (
+                           <span className="material-symbols-outlined text-shadow">magic_button</span>
+                       )}
+                     </button>
+                     <button 
+                        onClick={() => setIsExpanded(true)}
+                        className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
+                        title="Expand Image"
+                      >
+                       <span className="material-symbols-outlined text-shadow">fullscreen</span>
+                     </button>
+                     <button 
+                        onClick={() => setIsVnTextHidden(!isVnTextHidden)}
+                        className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
+                        title="Toggle TextBox (H)"
+                      >
+                       <span className="material-symbols-outlined text-shadow">{isVnTextHidden ? 'visibility_off' : 'visibility'}</span>
+                     </button>
+                 </div>
 
-                     {!isVnTextHidden && (
-                       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-40 bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col transform transition-transform animate-in slide-in-from-bottom-5 h-[30vh]">
-                          <div className="flex justify-between items-center mb-4 shrink-0">
-                             <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-primary/10 rounded-full border border-primary/20 shadow-inner">{chapterTitle}</span>
-                             <span className="text-white/60 text-xs font-mono tracking-widest bg-black/50 px-3 py-1 rounded-full border border-white/5">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
-                          </div>
-                          <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto pr-4 custom-scrollbar" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
-                             <p 
-                                className="text-gray-100 font-body leading-[1.8] tracking-wide shadow-none p-1 transition-all duration-300"
-                                style={{ fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem` }}
-                             >
-                                 {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? vnParagraphs[activeParagraphIndex].text : "Loading content..."}
-                             </p>
-                          </div>
-                       </div>
-                     )}
-                  </>
-              )}
-          </main>
-      )}
+                 {!isVnTextHidden && (
+                   <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-40 bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col transform transition-transform animate-in slide-in-from-bottom-5 h-[30vh]">
+                      <div className="flex justify-between items-center mb-4 shrink-0">
+                         <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-primary/10 rounded-full border border-primary/20 shadow-inner">{chapterTitle}</span>
+                         <span className="text-white/60 text-xs font-mono tracking-widest bg-black/50 px-3 py-1 rounded-full border border-white/5">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
+                      </div>
+                      <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto pr-4 custom-scrollbar" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
+                         <p 
+                            className="text-gray-100 font-body leading-[1.8] tracking-wide shadow-none p-1 transition-all duration-300"
+                            style={{ fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem` }}
+                         >
+                             {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? vnParagraphs[activeParagraphIndex].text : "Loading content..."}
+                         </p>
+                      </div>
+                   </div>
+                 )}
+              </>
+          ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-on-surface-variant z-10 pointer-events-none">
+                  <span className="material-symbols-outlined text-5xl md:text-6xl mb-4 opacity-50">auto_stories</span>
+                  <p className="font-headline tracking-widest uppercase text-sm md:text-base">Select an EPUB to begin</p>
+              </div>
+          )}
+      </main>
 
       {/* BottomNavBar */}
       {/* BottomNavBar */}
