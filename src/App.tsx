@@ -3,6 +3,7 @@ import ePub from 'epubjs';
 import localforage from 'localforage';
 import { SettingsModal } from './SettingsModal';
 import { generateAmbientImage } from './gemini';
+import { LyriaEngine } from './lyriaEngine';
 
 interface Bookmark {
   cfi: string;
@@ -32,6 +33,7 @@ export default function App() {
   const [isLoadingImage, setIsLoadingImage] = useState(false);
   const [currentContextText, setCurrentContextText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   
   // Visual Novel Mode State
   const [isStretchImage, setIsStretchImage] = useState(false);
@@ -62,6 +64,7 @@ export default function App() {
   const viewerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<any>(null);
   const renditionRef = useRef<any>(null);
+  const lyriaRef = useRef<LyriaEngine | null>(null);
   
   const lastSpineHrefRef = useRef<string>('');
 
@@ -221,9 +224,12 @@ export default function App() {
           const finalPayload = rawText.split(' ').slice(0, 1500).join(' ');
           if (finalPayload.length > 10) {
               setCurrentContextText(finalPayload);
+              if (isMusicPlaying && lyriaRef.current) {
+                   lyriaRef.current.setPrompts(finalPayload);
+              }
           }
       }
-  }, [activeParagraphIndex, vnParagraphs]);
+  }, [activeParagraphIndex, vnParagraphs, isMusicPlaying]);
 
   // Re-apply font size when it changes dynamically
   useEffect(() => {
@@ -591,6 +597,19 @@ export default function App() {
     }
   };
 
+  const toggleMusic = async () => {
+      try {
+          if (!lyriaRef.current) {
+               lyriaRef.current = new LyriaEngine();
+          }
+          const contextPayload = currentContextText || bookTitle || "Calm ambient background text";
+          const nowPlaying = await lyriaRef.current.togglePlay(contextPayload);
+          setIsMusicPlaying(nowPlaying);
+      } catch(e: any) {
+          alert("Audio Initialization Failed: " + e.message);
+      }
+  };
+
   return (
     <>
       {/* Global Background Vibe */}
@@ -610,6 +629,13 @@ export default function App() {
           <span className="text-[10px] md:text-sm font-label text-on-surface-variant uppercase tracking-widest truncate max-w-full block">{chapterTitle}</span>
         </div>
         <div className="flex gap-2 md:gap-4">
+          <button
+             onClick={toggleMusic}
+             title="Ambient Real-Time Music"
+             className={`transition-colors duration-300 p-2 rounded-lg cursor-pointer ${isMusicPlaying ? 'text-accent bg-surface-container-high shadow-inner' : 'text-primary hover:bg-surface-container-high'}`}
+          >
+            <span className="material-symbols-outlined">{isMusicPlaying ? 'music_note' : 'music_off'}</span>
+          </button>
           <button
              onClick={() => { setDrawerTab('toc'); setIsDrawerOpen(true); }}
              title="Table of Contents"
