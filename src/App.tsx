@@ -30,6 +30,9 @@ export default function App() {
   const viewerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<any>(null);
   const renditionRef = useRef<any>(null);
+  
+  const pageHistoryRef = useRef<string[]>([]);
+  const lastChapterRef = useRef<string>('');
 
   const isMountedPhase = useRef(false);
 
@@ -67,6 +70,7 @@ export default function App() {
       if (renditionRef.current) renditionRef.current.destroy();
       if (bookRef.current) bookRef.current.destroy();
       bookRef.current = null;
+      pageHistoryRef.current = []; // Clear context on new book
       
       initEpub(arrayBuffer);
     }
@@ -143,7 +147,7 @@ export default function App() {
                     localforage.setItem('epubLocation', location.start.cfi);
                     setCurrentCfi(location.start.cfi);
                     
-                    // Update Chapter Title
+                    // Update Chapter Title and clear context on major jump
                     try {
                         const toc = bookRef.current.navigation?.toc;
                         if (toc && toc.length > 0) {
@@ -161,7 +165,13 @@ export default function App() {
                         const spineItem = bookRef.current.spine.get(location.start.cfi);
                         if (spineItem) {
                             const chapter = findChapter(toc, spineItem.href);
-                            if (chapter) setChapterTitle(chapter.label);
+                            if (chapter) {
+                                if (lastChapterRef.current !== chapter.label) {
+                                    pageHistoryRef.current = []; // Flush context on new chapter
+                                    lastChapterRef.current = chapter.label;
+                                }
+                                setChapterTitle(chapter.label);
+                            }
                         }
                         }
                     } catch (err) {}
@@ -178,7 +188,15 @@ export default function App() {
                                     } catch (e) {} // Handle cross-origin if any
                                 });
                                 if (text.trim().length > 10) {
-                                    setCurrentContextText(text.trim());
+                                    const cleanedText = text.trim();
+                                    // Prevent duplicate pushes if the user is just resizing window
+                                    if (pageHistoryRef.current[pageHistoryRef.current.length - 1] !== cleanedText) {
+                                        pageHistoryRef.current.push(cleanedText);
+                                        if (pageHistoryRef.current.length > 5) {
+                                            pageHistoryRef.current.shift(); // Keep last 5 pages
+                                        }
+                                    }
+                                    setCurrentContextText(pageHistoryRef.current.join('\n\n---\n\n'));
                                 }
                             }
                         } catch (err) {}
