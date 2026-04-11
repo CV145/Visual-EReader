@@ -197,37 +197,35 @@ export default function App() {
                             const startRange = renditionRef.current.getRange(location.start.cfi);
                             const endRange = renditionRef.current.getRange(location.end.cfi);
                             
-                            if (startRange && endRange) {
+                            if (startRange) {
                                 const doc = startRange.startContainer.ownerDocument;
-                                const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+                                // Use SHOW_ALL to prevent walker initialization bugs if startContainer is an Element block
+                                const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ALL, null);
                                 
-                                let currentPageText = '';
-                                let subsequentText = '';
-                                let inCurrentPage = true;
+                                let extractedText = '';
                                 
+                                walker.currentNode = startRange.startContainer;
                                 let currentNode: Node | null = walker.currentNode;
                                 
                                 while (currentNode) {
-                                    if (inCurrentPage) {
-                                        currentPageText += currentNode.textContent + ' ';
-                                        if (currentNode === endRange.startContainer) {
-                                            inCurrentPage = false;
-                                        }
-                                    } else {
-                                        subsequentText += currentNode.textContent + ' ';
+                                    // Only extract actual text representation
+                                    if (currentNode.nodeType === Node.TEXT_NODE && currentNode.textContent) {
+                                        extractedText += currentNode.textContent + ' ';
                                     }
+                                    
+                                    // Performance optimization: 1500 words averages ~9000 characters. 
+                                    // Stop extracting once we securely have enough buffer.
+                                    if (extractedText.length > 12000) break;
                                     
                                     currentNode = walker.nextNode();
                                 }
 
-                                const cleanedCurrent = currentPageText.replace(/\s+/g, ' ').trim();
-                                const cleanedSubsequent = subsequentText.replace(/\s+/g, ' ').trim();
+                                const cleanedText = extractedText.replace(/\s+/g, ' ').trim();
                                 
-                                // Slice the first ~1250 words (~5 pages) of upcoming text to foreshadow without overflowing tokens
-                                const subsequentWords = cleanedSubsequent.split(' ');
-                                const upcomingContext = subsequentWords.slice(0, 1250).join(' ');
+                                // Slice precisely the first 1500 words (~5 pages) from this exact reading position
+                                const words = cleanedText.split(' ');
+                                const finalPayload = words.slice(0, 1500).join(' ');
 
-                                const finalPayload = cleanedCurrent + (upcomingContext ? '\n\n---\n\n' + upcomingContext : '');
                                 if (finalPayload.length > 10) {
                                     setCurrentContextText(finalPayload);
                                 }
