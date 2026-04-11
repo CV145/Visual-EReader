@@ -26,6 +26,13 @@ export default function App() {
   const [isLoadingImage, setIsLoadingImage] = useState(false);
   const [currentContextText, setCurrentContextText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
+  
+  // Visual Novel Mode State
+  const [isVnMode, setIsVnMode] = useState(false);
+  const [vnParagraphs, setVnParagraphs] = useState<string[]>([]);
+  const [activeParagraphIndex, setActiveParagraphIndex] = useState(0);
+  const [isVnTextHidden, setIsVnTextHidden] = useState(false);
+  const vnTextBoxRef = useRef<HTMLDivElement>(null);
 
   // TOC + Bookmarks + Gallery
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -43,8 +50,13 @@ export default function App() {
 
   const isMountedPhase = useRef(false);
 
+  const loadSettings = () => {
+    setIsVnMode(localStorage.getItem('VN_MODE') === 'true');
+  };
+
   useEffect(() => {
     isMountedPhase.current = true;
+    loadSettings();
     // Check locally saved book on load, but prevent double init
     localforage.getItem('savedBook').then((savedBookArrayBuffer) => {
       if (savedBookArrayBuffer && isMountedPhase.current && !bookRef.current) {
@@ -53,15 +65,77 @@ export default function App() {
     });
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') nextPage();
-      if (e.key === 'ArrowLeft') prevPage();
+      // General Navigation
+      if (!isVnMode) {
+         if (e.key === 'ArrowRight') nextPage();
+         if (e.key === 'ArrowLeft') prevPage();
+      } else {
+         // VN Mode Navigation
+         if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') {
+             e.preventDefault();
+             advanceVnDialogue();
+         }
+         // Custom Scrolling for long dense text
+         if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            vnTextBoxRef.current?.scrollBy({ top: -40, behavior: 'smooth' });
+         }
+         if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            vnTextBoxRef.current?.scrollBy({ top: 40, behavior: 'smooth' });
+         }
+         // Hide UI Toggle
+         if (e.key.toLowerCase() === 'h') {
+            setIsVnTextHidden(prev => !prev);
+         }
+      }
     };
+
     window.addEventListener('keydown', handleKeyDown);
+
+    // native Gamepad integration (Xbox/ROG Ally)
+    let animationFrame: number;
+    let lastButtonAPress = false;
+    let lastDPadRight = false;
+
+    const pollGamepad = () => {
+        const gamepads = navigator.getGamepads();
+        const gp = gamepads.find(pad => pad !== null);
+        if (gp) {
+            // Button 0 corresponds to the A button (bottom face button)
+            const aPressed = gp.buttons[0]?.pressed;
+            // D-Pad Right corresponds to Button 15 natively on standard XInput mapping
+            const rightPressed = gp.buttons[15]?.pressed; 
+
+            if (aPressed && !lastButtonAPress) {
+                if (isVnMode) advanceVnDialogue();
+                else nextPage();
+            }
+            if (rightPressed && !lastDPadRight) {
+                nextPage();
+            }
+
+            lastButtonAPress = Object.is(aPressed, true);
+            lastDPadRight = Object.is(rightPressed, true);
+        }
+        animationFrame = requestAnimationFrame(pollGamepad);
+    };
+    animationFrame = requestAnimationFrame(pollGamepad);
+
     return () => {
        isMountedPhase.current = false;
        window.removeEventListener('keydown', handleKeyDown);
+       cancelAnimationFrame(animationFrame);
     };
-  }, []);
+  }, [isVnMode, vnParagraphs, activeParagraphIndex]);
+
+  const advanceVnDialogue = useCallback(() => {
+     if (activeParagraphIndex < vnParagraphs.length - 1) {
+         setActiveParagraphIndex(prev => prev + 1);
+     } else {
+         nextPage();
+     }
+  }, [activeParagraphIndex, vnParagraphs]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -197,20 +271,42 @@ export default function App() {
                             const startRange = renditionRef.current.getRange(location.start.cfi);
                             const endRange = renditionRef.current.getRange(location.end.cfi);
                             
-                            if (startRange) {
+                            if (startRange && endRange) {
                                 const doc = startRange.startContainer.ownerDocument;
                                 // Use SHOW_ALL to prevent walker initialization bugs if startContainer is an Element block
                                 const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ALL, null);
                                 
                                 let extractedText = '';
+                                const screenParagraphs: string[] = [];
+                                let currentParaText = '';
+                                let lastBlock: Node | null = null;
+                                let pastBoundary = false;
+                                const endNode = endRange.startContainer;
                                 
                                 walker.currentNode = startRange.startContainer;
                                 let currentNode: Node | null = walker.currentNode;
                                 
                                 while (currentNode) {
+                                    // Watch for boundary hit
+                                    if (currentNode === endNode || (endNode.nodeType === Node.ELEMENT_NODE && endNode.contains(currentNode))) {
+                                        pastBoundary = true;
+                                    }
+
                                     // Only extract actual text representation
                                     if (currentNode.nodeType === Node.TEXT_NODE && currentNode.textContent) {
-                                        extractedText += currentNode.textContent + ' ';
+                                        const t = currentNode.textContent;
+                                        
+                                        if (!pastBoundary) {
+                                            const parent = currentNode.parentElement?.closest('p, div, h1, h2, h3, li, blockquote') || currentNode.parentNode;
+                                            if (parent !== lastBlock) {
+                                                if (currentParaText.trim()) screenParagraphs.push(currentParaText.trim());
+                                                currentParaText = '';
+                                                lastBlock = parent || null;
+                                            }
+                                            currentParaText += t + ' ';
+                                        }
+
+                                        extractedText += t + ' ';
                                     }
                                     
                                     // Performance optimization: 1500 words averages ~9000 characters. 
@@ -219,6 +315,13 @@ export default function App() {
                                     
                                     currentNode = walker.nextNode();
                                 }
+
+                                if (currentParaText.trim() && !pastBoundary) {
+                                    screenParagraphs.push(currentParaText.trim());
+                                }
+                                
+                                setVnParagraphs(screenParagraphs);
+                                setActiveParagraphIndex(0);
 
                                 const cleanedText = extractedText.replace(/\s+/g, ' ').trim();
                                 
@@ -360,63 +463,72 @@ export default function App() {
       </header>
 
       {/* Main Layout - vertical on mobile, horizontal on lg */}
-      <main className="flex flex-col lg:flex-row fixed top-14 md:top-20 bottom-14 md:bottom-20 left-0 right-0 overflow-hidden">
-
-        {/* Cinematic Image Pane — top on mobile, right on desktop */}
-        <section className="order-first lg:order-last w-full lg:w-[40%] h-[25vh] lg:h-full relative overflow-hidden atmospheric-glow shrink-0 group">
-          <img 
-            key={bgImage}
-            alt="Cinematic View" 
-            className="absolute inset-0 w-full h-full object-cover opacity-80 animate-in fade-in duration-1000" 
-            src={bgImage}
-          />
-          {/* Gradient: bottom-fade on mobile, left-fade on desktop */}
-          <div className="absolute inset-0 bg-gradient-to-b lg:bg-gradient-to-l from-transparent via-surface/20 to-surface pointer-events-none"></div>
-          
-          {/* Corner Action Buttons — appear subtly on hover */}
-          <div className="absolute bottom-3 right-3 z-20 flex gap-2 opacity-60 group-hover:opacity-100 transition-opacity duration-300">
-             <button 
-               onClick={handleGenerate}
-               disabled={isLoadingImage || !bookLoaded}
-               title={isLoadingImage ? 'Generating...' : 'Generate Scene'}
-               className="w-9 h-9 flex items-center justify-center bg-surface/70 hover:bg-surface/90 backdrop-blur-md rounded-lg border border-outline-variant/30 text-on-surface shadow-lg transition-all hover:scale-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-             >
-                <span className="material-symbols-outlined text-lg">{isLoadingImage ? 'hourglass_empty' : 'auto_awesome'}</span>
-             </button>
-             <button 
-               onClick={() => setIsExpanded(true)}
-               title="Expand Image"
-               className="w-9 h-9 flex items-center justify-center bg-surface/70 hover:bg-surface/90 backdrop-blur-md rounded-lg border border-outline-variant/30 text-on-surface shadow-lg transition-all hover:scale-110 active:scale-95 cursor-pointer"
-             >
-                <span className="material-symbols-outlined text-lg">fullscreen</span>
-             </button>
-          </div>
-
-          {/* Loading spinner overlay */}
-          {isLoadingImage && (
-            <div className="absolute inset-0 flex items-center justify-center z-10 bg-surface/30 backdrop-blur-sm pointer-events-none">
-              <span className="material-symbols-outlined text-4xl text-on-surface animate-spin">progress_activity</span>
-            </div>
-          )}
-        </section>
-
-        {/* Reading Pane — bottom on mobile, left on desktop */}
-        <section className="order-last lg:order-first w-full lg:w-[60%] flex-1 min-h-0 bg-surface-container-low px-4 md:px-24 py-4 md:py-8 relative">
-          <div className="max-w-prose mx-auto absolute inset-0 md:inset-y-8 md:inset-x-24 text-white reading-container overflow-hidden">
-             <div ref={viewerRef} className="absolute inset-0 font-body text-base md:text-[1.15rem] leading-[1.7] md:leading-[1.8] text-justify select-none" />
-             
-             {!bookLoaded && (
-                 <div className="absolute inset-0 flex flex-col items-center justify-center text-on-surface-variant z-10 pointer-events-none">
-                    <span className="material-symbols-outlined text-5xl md:text-6xl mb-4 opacity-50">auto_stories</span>
-                    <p className="font-headline tracking-widest uppercase text-sm md:text-base">Select an EPUB to begin</p>
+      {!isVnMode ? (
+          <main className="flex flex-col lg:flex-row fixed top-14 md:top-20 bottom-14 md:bottom-20 left-0 right-0 overflow-hidden">
+            <section className="order-first lg:order-last w-full lg:w-[40%] h-[25vh] lg:h-full relative overflow-hidden atmospheric-glow shrink-0 group">
+              <img 
+                key={bgImage}
+                alt="Cinematic View" 
+                className="absolute inset-0 w-full h-full object-cover opacity-80 animate-in fade-in duration-1000" 
+                src={bgImage}
+              />
+              <div className="absolute inset-0 bg-gradient-to-b lg:bg-gradient-to-l from-transparent via-surface/20 to-surface pointer-events-none"></div>
+              <div className="absolute bottom-3 right-3 z-20 flex gap-2 opacity-60 group-hover:opacity-100 transition-opacity duration-300">
+                 <button 
+                   onClick={handleGenerate}
+                   disabled={isLoadingImage || !bookLoaded}
+                   title={isLoadingImage ? 'Generating...' : 'Generate Scene'}
+                   className="w-9 h-9 flex items-center justify-center bg-surface/70 hover:bg-surface/90 backdrop-blur-md rounded-lg border border-outline-variant/30 text-on-surface shadow-lg transition-all hover:scale-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                 >
+                    <span className="material-symbols-outlined text-lg">{isLoadingImage ? 'hourglass_empty' : 'auto_awesome'}</span>
+                 </button>
+                 <button 
+                   onClick={() => setIsExpanded(true)}
+                   title="Expand Image"
+                   className="w-9 h-9 flex items-center justify-center bg-surface/70 hover:bg-surface/90 backdrop-blur-md rounded-lg border border-outline-variant/30 text-on-surface shadow-lg transition-all hover:scale-110 active:scale-95 cursor-pointer"
+                 >
+                    <span className="material-symbols-outlined text-lg">fullscreen</span>
+                 </button>
+              </div>
+              {isLoadingImage && (
+                <div className="absolute inset-0 flex items-center justify-center z-10 bg-surface/30 backdrop-blur-sm pointer-events-none">
+                  <span className="material-symbols-outlined text-4xl text-on-surface animate-spin">progress_activity</span>
+                </div>
+              )}
+            </section>
+            <section className="order-last lg:order-first w-full lg:w-[60%] flex-1 min-h-0 bg-surface-container-low px-4 md:px-24 py-4 md:py-8 relative">
+              <div className="max-w-prose mx-auto absolute inset-0 md:inset-y-8 md:inset-x-24 text-white reading-container overflow-hidden">
+                 <div ref={viewerRef} className="absolute inset-0 font-body text-base md:text-[1.15rem] leading-[1.7] md:leading-[1.8] text-justify select-none" />
+                 {!bookLoaded && (
+                     <div className="absolute inset-0 flex flex-col items-center justify-center text-on-surface-variant z-10 pointer-events-none">
+                        <span className="material-symbols-outlined text-5xl md:text-6xl mb-4 opacity-50">auto_stories</span>
+                        <p className="font-headline tracking-widest uppercase text-sm md:text-base">Select an EPUB to begin</p>
+                     </div>
+                 )}
+              </div>
+              <div className="hidden lg:block absolute top-0 right-0 h-full w-32 bg-gradient-to-r from-transparent to-surface/60 pointer-events-none"></div>
+            </section>
+          </main>
+      ) : (
+          <main className="fixed inset-0 z-40 bg-black">
+              <div className="absolute inset-0 bg-cover bg-center transition-transform duration-[120s] ease-linear scale-110" style={{ backgroundImage: `url(${bgImage})` }} />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
+              <div className="absolute inset-0 p-8 opacity-0 pointer-events-none -z-10" ref={viewerRef}></div>
+              {!isVnTextHidden && (
+                 <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-40 bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col transform transition-transform animate-in slide-in-from-bottom-5">
+                    <div className="flex justify-between items-center mb-3">
+                       <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-primary/10 rounded-full border border-primary/20">{chapterTitle}</span>
+                       <span className="text-white/40 text-xs font-mono tracking-widest">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
+                    </div>
+                    <div ref={vnTextBoxRef} className="overflow-y-auto max-h-[25vh] md:max-h-[30vh] pr-4 custom-scrollbar" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
+                       <p className="text-gray-100 font-body text-xl md:text-2xl leading-relaxed">
+                           {vnParagraphs.length > 0 ? vnParagraphs[activeParagraphIndex] : "Loading content..."}
+                       </p>
+                    </div>
                  </div>
-             )}
-          </div>
-          {/* Atmospheric blending edge — desktop only */}
-          <div className="hidden lg:block absolute top-0 right-0 h-full w-32 bg-gradient-to-r from-transparent to-surface/60 pointer-events-none"></div>
-        </section>
-
-      </main>
+              )}
+          </main>
+      )}
 
       {/* BottomNavBar */}
       <footer className="fixed bottom-0 left-0 w-full z-50 h-14 md:h-20 bg-surface-container-low flex justify-between items-center px-4 md:px-12 border-t border-outline-variant/15">

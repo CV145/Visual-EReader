@@ -4,6 +4,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
   const [apiKey, setApiKey] = useState('');
   const [includeCharacters, setIncludeCharacters] = useState(false);
   const [imageStyle, setImageStyle] = useState('cinematic');
+  const [isVnMode, setIsVnMode] = useState(false);
 
   useEffect(() => {
     const savedKey = localStorage.getItem('GEMINI_API_KEY');
@@ -12,12 +13,15 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
     setIncludeCharacters(savedCharPref === 'true');
     const savedStyle = localStorage.getItem('IMAGE_STYLE_PREF');
     if (savedStyle) setImageStyle(savedStyle);
+    const vnModePref = localStorage.getItem('VN_MODE');
+    setIsVnMode(vnModePref === 'true');
   }, [isOpen]);
 
   const saveSettings = () => {
     localStorage.setItem('GEMINI_API_KEY', apiKey);
     localStorage.setItem('INCLUDE_CHARACTERS', includeCharacters ? 'true' : 'false');
     localStorage.setItem('IMAGE_STYLE_PREF', imageStyle);
+    localStorage.setItem('VN_MODE', isVnMode ? 'true' : 'false');
     onClose();
   };
 
@@ -55,6 +59,21 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
             <option value="comic-book">Graphic Novel / Comic Cells</option>
           </select>
         </div>
+
+        {/* Mode Toggles */}
+        <label className="block text-on-surface-variant font-label text-xs uppercase tracking-widest mb-3 mt-6">Reading Modes</label>
+
+        <label className="flex items-center gap-3 cursor-pointer mb-4 group">
+          <input 
+            type="checkbox"
+            checked={isVnMode}
+            onChange={(e) => setIsVnMode(e.target.checked)}
+            className="w-5 h-5 rounded border-2 border-outline-variant bg-surface-container-highest accent-primary cursor-pointer"
+          />
+          <span className="text-on-surface font-body text-sm group-hover:text-primary transition-colors select-none">
+            Visual Novel Mode (Paragraph-by-paragraph)
+          </span>
+        </label>
 
         <label className="flex items-center gap-3 cursor-pointer mb-6 group">
           <input 
