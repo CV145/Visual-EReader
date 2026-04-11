@@ -10,6 +10,11 @@ interface Bookmark {
   timestamp: number;
 }
 
+interface VnParagraph {
+  text: string;
+  cfi: string;
+}
+
 interface GalleryImage {
   id: string;
   base64: string;
@@ -30,7 +35,7 @@ export default function App() {
   // Visual Novel Mode State
   const [isVnMode, setIsVnMode] = useState(false);
   const [isStretchImage, setIsStretchImage] = useState(false);
-  const [vnParagraphs, setVnParagraphs] = useState<string[]>([]);
+  const [vnParagraphs, setVnParagraphs] = useState<VnParagraph[]>([]);
   const [activeParagraphIndex, setActiveParagraphIndex] = useState(0);
   const [isVnTextHidden, setIsVnTextHidden] = useState(false);
   const vnTextBoxRef = useRef<HTMLDivElement>(null);
@@ -62,6 +67,7 @@ export default function App() {
 
   const isMountedPhase = useRef(false);
   const isNavigatingBackward = useRef(false);
+  const isInternalVnNavigation = useRef(false);
 
   const loadSettings = () => {
     setIsVnMode(localStorage.getItem('VN_MODE') === 'true');
@@ -160,7 +166,10 @@ export default function App() {
 
   const advanceVnDialogue = useCallback(() => {
      if (activeParagraphIndex < vnParagraphs.length - 1) {
-         setActiveParagraphIndex(prev => prev + 1);
+         const nextIndex = activeParagraphIndex + 1;
+         setActiveParagraphIndex(nextIndex);
+         isInternalVnNavigation.current = true;
+         renditionRef.current?.display(vnParagraphs[nextIndex].cfi);
      } else {
          nextPage();
      }
@@ -168,17 +177,30 @@ export default function App() {
 
   const previousVnDialogue = useCallback(() => {
      if (activeParagraphIndex > 0) {
-         setActiveParagraphIndex(prev => prev - 1);
+         const prevIndex = activeParagraphIndex - 1;
+         setActiveParagraphIndex(prevIndex);
+         isInternalVnNavigation.current = true;
+         renditionRef.current?.display(vnParagraphs[prevIndex].cfi);
      } else {
          isNavigatingBackward.current = true;
          prevPage();
      }
-  }, [activeParagraphIndex]);
+  }, [activeParagraphIndex, vnParagraphs]);
 
   // Instantly snap to the top of the newly loaded text box when a paragraph switches organically
   useEffect(() => {
       if (vnTextBoxRef.current) {
-          vnTextBoxRef.current.scrollTo({ top: 0, behavior: 'instant' });
+          vnTextBoxRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      // Automatically construct Gemini Context explicitly aligned directly from the chapter array graph
+      if (vnParagraphs.length > 0 && activeParagraphIndex >= 0) {
+          const sliceAhead = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 40);
+          const rawText = sliceAhead.map(p => p.text).join(' ');
+          const finalPayload = rawText.split(' ').slice(0, 1500).join(' ');
+          if (finalPayload.length > 10) {
+              setCurrentContextText(finalPayload);
+          }
       }
   }, [activeParagraphIndex, vnParagraphs]);
 
@@ -296,10 +318,6 @@ export default function App() {
                     try {
                         const spineItem = bookRef.current.spine.get(location.start.cfi);
                         if (spineItem) {
-                            if (lastSpineHrefRef.current !== spineItem.href) {
-                                lastSpineHrefRef.current = spineItem.href;
-                            }
-
                             const toc = bookRef.current.navigation?.toc;
                             if (toc && toc.length > 0) {
                                 const findChapter = (items: any[], href: string): any => {
@@ -312,93 +330,94 @@ export default function App() {
                                     }
                                     return null;
                                 };
-                                
                                 const chapter = findChapter(toc, spineItem.href);
                                 if (chapter) {
                                     setChapterTitle(chapter.label);
                                 }
                             }
+                            
+                            // Visual Novel: Full Chapter Graph Reconstruction
+                            if (isInternalVnNavigation.current) {
+                                // Break looping: epubjs navigated identically where we told it to!
+                                isInternalVnNavigation.current = false;
+                                return;
+                            }
+                            
+                            setTimeout(() => {
+                                try {
+                                    const contents = renditionRef.current.getContents()?.[0];
+                                    if (!contents || !contents.document) return;
+
+                                    let targetElement: Element | null = null;
+                                    const startRange = renditionRef.current.getRange(location.start.cfi);
+                                    if (startRange) {
+                                        targetElement = startRange.startContainer.nodeType === Node.TEXT_NODE 
+                                            ? startRange.startContainer.parentElement?.closest('p, blockquote, li, h1, h2, h3, div')
+                                            : (startRange.startContainer as Element).closest?.('p, blockquote, li, h1, h2, h3, div');
+                                    }
+
+                                    const rawElements = contents.document.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
+                                    
+                                    // If a brand new chapter hit, comprehensively recreate the Chapter Graph
+                                    if (lastSpineHrefRef.current !== spineItem.href || vnParagraphs.length === 0) {
+                                        lastSpineHrefRef.current = spineItem.href;
+                                        
+                                        const chapterGraph: VnParagraph[] = [];
+                                        let targetIndex = 0;
+                                        let indexCounter = 0;
+
+                                        rawElements.forEach(element => {
+                                            const txt = element.textContent?.trim();
+                                            // Only map actual readable blocks
+                                            if (txt && txt.length > 5) {
+                                                const nativeCfi = contents.cfiFromNode(element);
+                                                if (nativeCfi) {
+                                                    chapterGraph.push({ text: txt, cfi: nativeCfi });
+                                                    // Native DOM alignment resolving precise active index
+                                                    if (targetElement && (element === targetElement || element.contains(targetElement) || targetElement.contains(element))) {
+                                                        targetIndex = indexCounter;
+                                                    }
+                                                    indexCounter++;
+                                                }
+                                            }
+                                        });
+
+                                        if (chapterGraph.length > 0) {
+                                            setVnParagraphs(chapterGraph);
+                                            if (isNavigatingBackward.current) {
+                                                const extremeIdx = chapterGraph.length - 1;
+                                                setActiveParagraphIndex(extremeIdx);
+                                                isInternalVnNavigation.current = true;
+                                                renditionRef.current.display(chapterGraph[extremeIdx].cfi);
+                                                isNavigatingBackward.current = false;
+                                            } else {
+                                                setActiveParagraphIndex(targetIndex);
+                                                // Sync precisely
+                                                isInternalVnNavigation.current = true;
+                                                renditionRef.current.display(chapterGraph[targetIndex].cfi);
+                                            }
+                                        }
+                                    } else {
+                                        // Standard Page Flip inside Same Chapter -> align active paragraph automatically
+                                        let indexCounter = 0;
+                                        let targetIndex = 0;
+                                        rawElements.forEach(element => {
+                                            const txt = element.textContent?.trim();
+                                            if (txt && txt.length > 5) {
+                                                if (targetElement && (element === targetElement || element.contains(targetElement) || targetElement.contains(element))) {
+                                                    targetIndex = indexCounter;
+                                                }
+                                                indexCounter++;
+                                            }
+                                        });
+                                        setActiveParagraphIndex(targetIndex);
+                                    }
+                                } catch (err) {
+                                    console.error("Chapter Extraction Error:", err);
+                                }
+                            }, 100);
                         }
                     } catch (err) {}
-
-                    // Extract visible text precisely bounded by CFI
-                    setTimeout(() => {
-                        try {
-                            const startRange = renditionRef.current.getRange(location.start.cfi);
-                            const endRange = renditionRef.current.getRange(location.end.cfi);
-                            
-                            if (startRange && endRange) {
-                                const doc = startRange.startContainer.ownerDocument;
-                                // Use SHOW_ALL to prevent walker initialization bugs if startContainer is an Element block
-                                const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ALL, null);
-                                
-                                let extractedText = '';
-                                const screenParagraphs: string[] = [];
-                                let currentParaText = '';
-                                let lastBlock: Node | null = null;
-                                let pastBoundary = false;
-                                const endNode = endRange.startContainer;
-                                
-                                walker.currentNode = startRange.startContainer;
-                                let currentNode: Node | null = walker.currentNode;
-                                
-                                while (currentNode) {
-                                    // Watch for boundary hit
-                                    if (currentNode === endNode || (endNode.nodeType === Node.ELEMENT_NODE && endNode.contains(currentNode))) {
-                                        pastBoundary = true;
-                                    }
-
-                                    // Only extract actual text representation
-                                    if (currentNode.nodeType === Node.TEXT_NODE && currentNode.textContent) {
-                                        const t = currentNode.textContent;
-                                        
-                                        if (!pastBoundary) {
-                                            const parent = currentNode.parentElement?.closest('p, div, h1, h2, h3, li, blockquote') || currentNode.parentNode;
-                                            if (parent !== lastBlock) {
-                                                if (currentParaText.trim()) screenParagraphs.push(currentParaText.trim());
-                                                currentParaText = '';
-                                                lastBlock = parent || null;
-                                            }
-                                            currentParaText += t + ' ';
-                                        }
-
-                                        extractedText += t + ' ';
-                                    }
-                                    
-                                    // Performance optimization: 1500 words averages ~9000 characters. 
-                                    // Stop extracting once we securely have enough buffer.
-                                    if (extractedText.length > 12000) break;
-                                    
-                                    currentNode = walker.nextNode();
-                                }
-
-                                if (currentParaText.trim() && !pastBoundary) {
-                                    screenParagraphs.push(currentParaText.trim());
-                                }
-                                
-                                setVnParagraphs(screenParagraphs);
-                                
-                                if (isNavigatingBackward.current) {
-                                    setActiveParagraphIndex(Math.max(0, screenParagraphs.length - 1));
-                                    isNavigatingBackward.current = false;
-                                } else {
-                                    setActiveParagraphIndex(0);
-                                }
-
-                                const cleanedText = extractedText.replace(/\s+/g, ' ').trim();
-                                
-                                // Slice precisely the first 1500 words (~5 pages) from this exact reading position
-                                const words = cleanedText.split(' ');
-                                const finalPayload = words.slice(0, 1500).join(' ');
-
-                                if (finalPayload.length > 10) {
-                                    setCurrentContextText(finalPayload);
-                                }
-                            }
-                        } catch (err) {
-                            console.error("Context Extraction Error:", err);
-                        }
-                    }, 300);
                 } catch (generalError) {
                     console.error("Error in relocated hook:", generalError);
                 }
@@ -621,7 +640,7 @@ export default function App() {
                                 className="text-gray-100 font-body leading-[1.8] tracking-wide shadow-none p-1 transition-all duration-300"
                                 style={{ fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem` }}
                              >
-                                 {vnParagraphs.length > 0 ? vnParagraphs[activeParagraphIndex] : "Loading content..."}
+                                 {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? vnParagraphs[activeParagraphIndex].text : "Loading content..."}
                              </p>
                           </div>
                        </div>
