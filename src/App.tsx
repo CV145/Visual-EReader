@@ -49,6 +49,7 @@ export default function App() {
   const lastSpineHrefRef = useRef<string>('');
 
   const isMountedPhase = useRef(false);
+  const isNavigatingBackward = useRef(false);
 
   const loadSettings = () => {
     setIsVnMode(localStorage.getItem('VN_MODE') === 'true');
@@ -75,6 +76,10 @@ export default function App() {
              e.preventDefault();
              advanceVnDialogue();
          }
+         if (e.key === 'ArrowLeft') {
+             e.preventDefault();
+             previousVnDialogue();
+         }
          // Custom Scrolling for long dense text
          if (e.key === 'ArrowUp') {
             e.preventDefault();
@@ -97,6 +102,7 @@ export default function App() {
     let animationFrame: number;
     let lastButtonAPress = false;
     let lastDPadRight = false;
+    let lastDPadLeft = false;
 
     const pollGamepad = () => {
         const gamepads = navigator.getGamepads();
@@ -112,11 +118,19 @@ export default function App() {
                 else nextPage();
             }
             if (rightPressed && !lastDPadRight) {
-                nextPage();
+                if (isVnMode) advanceVnDialogue();
+                else nextPage();
+            }
+            // Add backwards D-Pad Left mapping (button 14)
+            const leftPressed = gp.buttons[14]?.pressed;
+            if (leftPressed && !lastDPadLeft) {
+                if (isVnMode) previousVnDialogue();
+                else prevPage();
             }
 
             lastButtonAPress = Object.is(aPressed, true);
             lastDPadRight = Object.is(rightPressed, true);
+            lastDPadLeft = Object.is(leftPressed, true);
         }
         animationFrame = requestAnimationFrame(pollGamepad);
     };
@@ -136,6 +150,15 @@ export default function App() {
          nextPage();
      }
   }, [activeParagraphIndex, vnParagraphs]);
+
+  const previousVnDialogue = useCallback(() => {
+     if (activeParagraphIndex > 0) {
+         setActiveParagraphIndex(prev => prev - 1);
+     } else {
+         isNavigatingBackward.current = true;
+         prevPage();
+     }
+  }, [activeParagraphIndex]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -321,7 +344,13 @@ export default function App() {
                                 }
                                 
                                 setVnParagraphs(screenParagraphs);
-                                setActiveParagraphIndex(0);
+                                
+                                if (isNavigatingBackward.current) {
+                                    setActiveParagraphIndex(Math.max(0, screenParagraphs.length - 1));
+                                    isNavigatingBackward.current = false;
+                                } else {
+                                    setActiveParagraphIndex(0);
+                                }
 
                                 const cleanedText = extractedText.replace(/\s+/g, ' ').trim();
                                 
@@ -514,18 +543,40 @@ export default function App() {
               <div className="absolute inset-0 bg-cover bg-center transition-transform duration-[120s] ease-linear scale-110" style={{ backgroundImage: `url(${bgImage})` }} />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
               <div className="absolute inset-0 p-8 opacity-0 pointer-events-none -z-10" ref={viewerRef}></div>
-              {!isVnTextHidden && (
-                 <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-40 bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col transform transition-transform animate-in slide-in-from-bottom-5">
-                    <div className="flex justify-between items-center mb-3">
-                       <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-primary/10 rounded-full border border-primary/20">{chapterTitle}</span>
-                       <span className="text-white/40 text-xs font-mono tracking-widest">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
-                    </div>
-                    <div ref={vnTextBoxRef} className="overflow-y-auto max-h-[25vh] md:max-h-[30vh] pr-4 custom-scrollbar" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
-                       <p className="text-gray-100 font-body text-xl md:text-2xl leading-relaxed">
-                           {vnParagraphs.length > 0 ? vnParagraphs[activeParagraphIndex] : "Loading content..."}
-                       </p>
-                    </div>
-                 </div>
+              {/* Visual Novel UI Overlays */}
+              {bookLoaded && (
+                  <>
+                     <div className="absolute top-20 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
+                         <button 
+                            onClick={handleGenerate}
+                            className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
+                            title="Generate Image"
+                          >
+                           <span className="material-symbols-outlined text-shadow">magic_button</span>
+                         </button>
+                         <button 
+                            onClick={() => setIsVnTextHidden(!isVnTextHidden)}
+                            className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
+                            title="Toggle TextBox (H)"
+                          >
+                           <span className="material-symbols-outlined text-shadow">{isVnTextHidden ? 'visibility_off' : 'visibility'}</span>
+                         </button>
+                     </div>
+
+                     {!isVnTextHidden && (
+                       <div className="fixed bottom-20 md:bottom-28 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-40 bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col transform transition-transform animate-in slide-in-from-bottom-5 h-[30vh]">
+                          <div className="flex justify-between items-center mb-4 shrink-0">
+                             <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-primary/10 rounded-full border border-primary/20 shadow-inner">{chapterTitle}</span>
+                             <span className="text-white/60 text-xs font-mono tracking-widest bg-black/50 px-3 py-1 rounded-full border border-white/5">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
+                          </div>
+                          <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto pr-4 custom-scrollbar" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
+                             <p className="text-gray-100 font-body text-xl md:text-2xl leading-[1.8] tracking-wide shadow-none p-1">
+                                 {vnParagraphs.length > 0 ? vnParagraphs[activeParagraphIndex] : "Loading content..."}
+                             </p>
+                          </div>
+                       </div>
+                     )}
+                  </>
               )}
           </main>
       )}
