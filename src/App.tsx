@@ -366,21 +366,34 @@ export default function App() {
                             
                             setTimeout(() => {
                                 try {
+                                    console.log("------- RELOCATED EVENT FIRED -------");
+                                    console.log("Location.start.cfi:", location.start.cfi);
+                                    
                                     const startRange = renditionRef.current.getRange(location.start.cfi);
-                                    if (!startRange) return;
+                                    if (!startRange) {
+                                        console.log("CRITICAL ERROR: startRange is null. Cannot map TOC target.");
+                                        return;
+                                    }
 
                                     const activeDoc = startRange.startContainer.ownerDocument;
                                     const allContents = renditionRef.current.getContents() || [];
                                     const correctContents = allContents.find((c: any) => c.document === activeDoc) || allContents[0];
                                     
-                                    if (!correctContents || !activeDoc) return;
+                                    if (!correctContents || !activeDoc) {
+                                        console.log("CRITICAL ERROR: Failed to isolate active Contents iframe object.");
+                                        return;
+                                    }
 
                                     let targetElement: Node | null = null;
                                     targetElement = startRange.startContainer.nodeType === Node.TEXT_NODE 
                                             ? startRange.startContainer.parentElement 
                                             : startRange.startContainer;
-
+                                            
+                                    console.log("Resolved targetElement:", targetElement);
+                                    console.log("Resolved targetElement textContent:", targetElement?.textContent?.slice(0, 100));
+                                    
                                     const rawElements = activeDoc.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
+                                    console.log(`Found ${rawElements.length} textual DOM nodes in chapter.`);
                                     
                                     const resolveTargetIndex = () => {
                                         if (!targetElement) return 0;
@@ -391,27 +404,31 @@ export default function App() {
                                             const txt = el.textContent?.trim();
                                             if (txt && txt.length > 5) {
                                                 if (!found) {
-                                                    // Is target inside this element?
                                                     if (el === targetElement || el.contains(targetElement)) {
                                                         matchedIdx = idxCount;
                                                         found = true;
+                                                        console.log(`Target HIT! Exact Match or Container. Index: ${idxCount}. Text: ${txt.slice(0, 50)}`);
                                                     } else {
-                                                        // Did we pass the element structurally? Node.DOCUMENT_POSITION_PRECEDING = 2
                                                         const pos = el.compareDocumentPosition(targetElement);
+                                                        // Node.DOCUMENT_POSITION_PRECEDING = 2
                                                         if (pos & Node.DOCUMENT_POSITION_PRECEDING) {
-                                                            matchedIdx = Math.max(0, idxCount - 1);
+                                                            // We encountered the first readable text block structurally subsequent to the Target Anchor
+                                                            matchedIdx = idxCount;
                                                             found = true;
+                                                            console.log(`Target PRECEDING Hit! Assigning mapped block Index: ${matchedIdx}. Current element text: ${txt.slice(0, 50)}`);
                                                         }
                                                     }
                                                 }
                                                 idxCount++;
                                             }
                                         });
+                                        if (!found) console.log("WARNING: Target never matched! Defaulted to index 0.");
                                         return matchedIdx;
                                     };
                                     
                                     // If a brand new chapter hit, comprehensively recreate the Chapter Graph
                                     if (lastSpineHrefRef.current !== spineItem.href || vnParagraphs.length === 0) {
+                                        console.log("CHAPTER BOUNDARY CROSSED. Reconstructing new Spine Item:", spineItem.href);
                                         lastSpineHrefRef.current = spineItem.href;
                                         
                                         const chapterGraph: VnParagraph[] = [];
@@ -425,22 +442,27 @@ export default function App() {
                                             }
                                         });
 
+                                        console.log(`Generated Chapter Graph containing exactly ${chapterGraph.length} text bodies.`);
+
                                         if (chapterGraph.length > 0) {
                                             setVnParagraphs(chapterGraph);
                                             if (isNavigatingBackward.current) {
                                                 const extremeIdx = chapterGraph.length - 1;
+                                                console.log("Navigating backward. Snapping mathematically to Extreme Index:", extremeIdx);
                                                 setActiveParagraphIndex(extremeIdx);
                                                 isInternalVnNavigation.current = true;
                                                 renditionRef.current.display(chapterGraph[extremeIdx].cfi);
                                                 isNavigatingBackward.current = false;
                                             } else {
-                                                // Sync precisely without brutally overwriting epubjs DOM rendering instructions!
-                                                setActiveParagraphIndex(resolveTargetIndex());
+                                                const finalIdx = resolveTargetIndex();
+                                                console.log("Setting precise VN active index mapped to TOC:", finalIdx);
+                                                setActiveParagraphIndex(finalIdx);
                                             }
                                         }
                                     } else {
-                                        // Standard Page Flip inside Same Chapter -> align active paragraph automatically silently
-                                        setActiveParagraphIndex(resolveTargetIndex());
+                                        const finalIdx = resolveTargetIndex();
+                                        console.log("Identical Chapter. Recalibrating index from Organic Pagination shift to:", finalIdx);
+                                        setActiveParagraphIndex(finalIdx);
                                     }
                                 } catch (err) {
                                     console.error("Chapter Extraction Error:", err);
