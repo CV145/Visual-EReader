@@ -29,6 +29,7 @@ export default function App() {
   
   // Visual Novel Mode State
   const [isVnMode, setIsVnMode] = useState(false);
+  const [isStretchImage, setIsStretchImage] = useState(false);
   const [vnParagraphs, setVnParagraphs] = useState<string[]>([]);
   const [activeParagraphIndex, setActiveParagraphIndex] = useState(0);
   const [isVnTextHidden, setIsVnTextHidden] = useState(false);
@@ -64,6 +65,7 @@ export default function App() {
 
   const loadSettings = () => {
     setIsVnMode(localStorage.getItem('VN_MODE') === 'true');
+    setIsStretchImage(localStorage.getItem('STRETCH_IMAGE') === 'true');
     const savedFontSize = localStorage.getItem('FONT_SIZE');
     if (savedFontSize) setFontSizeState(parseInt(savedFontSize, 10));
   };
@@ -580,7 +582,7 @@ export default function App() {
           </main>
       ) : (
           <main className="fixed top-14 md:top-20 bottom-14 md:bottom-20 left-0 right-0 z-0 bg-black flex items-center justify-center overflow-hidden">
-              <div className="absolute inset-0 bg-contain bg-center bg-no-repeat transition-transform duration-[120s] ease-linear scale-100" style={{ backgroundImage: `url(${bgImage})` }} />
+              <div className={`absolute inset-0 ${isStretchImage ? 'bg-cover' : 'bg-contain'} bg-center bg-no-repeat transition-transform duration-[120s] ease-linear scale-100`} style={{ backgroundImage: `url(${bgImage})` }} />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
               <div className="absolute inset-0 p-8 opacity-0 pointer-events-none -z-10" ref={viewerRef}></div>
               {/* Visual Novel UI Overlays */}
