@@ -7,6 +7,7 @@ import { generateAmbientImage } from './gemini';
 interface Bookmark {
   cfi: string;
   label: string;
+  paragraphIndex?: number;
   timestamp: number;
 }
 
@@ -208,6 +209,12 @@ export default function App() {
 
       // Automatically construct Gemini Context explicitly aligned directly from the chapter array graph
       if (vnParagraphs.length > 0 && activeParagraphIndex >= 0) {
+          const activeNode = vnParagraphs[activeParagraphIndex];
+          if (activeNode) {
+              setCurrentCfi(activeNode.cfi);
+              localforage.setItem('epubLocation', activeNode.cfi);
+          }
+
           const sliceAhead = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 40);
           const rawText = sliceAhead.map(p => p.text).join(' ');
           const finalPayload = rawText.split(' ').slice(0, 1500).join(' ');
@@ -515,6 +522,7 @@ export default function App() {
     const newBookmark: Bookmark = {
       cfi: currentCfi,
       label: chapterTitle || 'Unknown location',
+      paragraphIndex: activeParagraphIndex + 1,
       timestamp: Date.now()
     };
     const updated = [...bookmarks, newBookmark];
@@ -868,7 +876,9 @@ export default function App() {
                         onClick={() => navigateToCfi(bm.cfi)}
                         className="flex-1 text-left px-3 py-2.5 rounded-lg text-on-surface hover:bg-surface-container-highest hover:text-primary transition-colors cursor-pointer truncate"
                       >
-                        <span className="text-sm font-body block truncate">{bm.label}</span>
+                        <span className="text-sm font-body block truncate">
+                            {bm.label}{bm.paragraphIndex ? ` \u2014 Para ${bm.paragraphIndex}` : ''}
+                        </span>
                         <span className="text-[10px] text-on-surface-variant font-label">
                           {new Date(bm.timestamp).toLocaleDateString()} {new Date(bm.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                         </span>
