@@ -171,7 +171,16 @@ export default function App() {
          isInternalVnNavigation.current = true;
          renditionRef.current?.display(vnParagraphs[nextIndex].cfi);
      } else {
-         nextPage();
+         try {
+             // Forcibly jump explicitly to the exact next chapter to avoid getting stuck in blank trailing pages
+             const currentSection = bookRef.current.spine.get(lastSpineHrefRef.current);
+             if (currentSection && currentSection.index < bookRef.current.spine.length - 1) {
+                 const nextSection = bookRef.current.spine.get(currentSection.index + 1);
+                 renditionRef.current?.display(nextSection.href);
+             } else {
+                 nextPage();
+             }
+         } catch(e) { nextPage(); }
      }
   }, [activeParagraphIndex, vnParagraphs]);
 
@@ -182,8 +191,21 @@ export default function App() {
          isInternalVnNavigation.current = true;
          renditionRef.current?.display(vnParagraphs[prevIndex].cfi);
      } else {
-         isNavigatingBackward.current = true;
-         prevPage();
+         try {
+             // Forcibly jump backwards mathematically across strict chapter bounds mapping
+             const currentSection = bookRef.current.spine.get(lastSpineHrefRef.current);
+             if (currentSection && currentSection.index > 0) {
+                 const prevSection = bookRef.current.spine.get(currentSection.index - 1);
+                 isNavigatingBackward.current = true;
+                 renditionRef.current?.display(prevSection.href);
+             } else {
+                 isNavigatingBackward.current = true;
+                 prevPage();
+             }
+         } catch(e) {
+             isNavigatingBackward.current = true;
+             prevPage();
+         }
      }
   }, [activeParagraphIndex, vnParagraphs]);
 
@@ -348,36 +370,55 @@ export default function App() {
                                     const contents = renditionRef.current.getContents()?.[0];
                                     if (!contents || !contents.document) return;
 
-                                    let targetElement: Element | null = null;
+                                    let targetElement: Node | null = null;
                                     const startRange = renditionRef.current.getRange(location.start.cfi);
                                     if (startRange) {
                                         targetElement = startRange.startContainer.nodeType === Node.TEXT_NODE 
-                                            ? startRange.startContainer.parentElement?.closest('p, blockquote, li, h1, h2, h3, div')
-                                            : (startRange.startContainer as Element).closest?.('p, blockquote, li, h1, h2, h3, div');
+                                            ? startRange.startContainer.parentElement 
+                                            : startRange.startContainer;
                                     }
 
                                     const rawElements = contents.document.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
+                                    
+                                    const resolveTargetIndex = () => {
+                                        if (!targetElement) return 0;
+                                        let matchedIdx = 0;
+                                        let found = false;
+                                        let idxCount = 0;
+                                        rawElements.forEach(el => {
+                                            const txt = el.textContent?.trim();
+                                            if (txt && txt.length > 5) {
+                                                if (!found) {
+                                                    // Is target inside this element?
+                                                    if (el === targetElement || el.contains(targetElement)) {
+                                                        matchedIdx = idxCount;
+                                                        found = true;
+                                                    } else {
+                                                        // Did we pass the element structurally? Node.DOCUMENT_POSITION_PRECEDING = 2
+                                                        const pos = el.compareDocumentPosition(targetElement);
+                                                        if (pos & Node.DOCUMENT_POSITION_PRECEDING) {
+                                                            matchedIdx = Math.max(0, idxCount - 1);
+                                                            found = true;
+                                                        }
+                                                    }
+                                                }
+                                                idxCount++;
+                                            }
+                                        });
+                                        return matchedIdx;
+                                    };
                                     
                                     // If a brand new chapter hit, comprehensively recreate the Chapter Graph
                                     if (lastSpineHrefRef.current !== spineItem.href || vnParagraphs.length === 0) {
                                         lastSpineHrefRef.current = spineItem.href;
                                         
                                         const chapterGraph: VnParagraph[] = [];
-                                        let targetIndex = 0;
-                                        let indexCounter = 0;
-
                                         rawElements.forEach(element => {
                                             const txt = element.textContent?.trim();
-                                            // Only map actual readable blocks
                                             if (txt && txt.length > 5) {
                                                 const nativeCfi = contents.cfiFromNode(element);
                                                 if (nativeCfi) {
                                                     chapterGraph.push({ text: txt, cfi: nativeCfi });
-                                                    // Native DOM alignment resolving precise active index
-                                                    if (targetElement && (element === targetElement || element.contains(targetElement) || targetElement.contains(element))) {
-                                                        targetIndex = indexCounter;
-                                                    }
-                                                    indexCounter++;
                                                 }
                                             }
                                         });
@@ -391,26 +432,13 @@ export default function App() {
                                                 renditionRef.current.display(chapterGraph[extremeIdx].cfi);
                                                 isNavigatingBackward.current = false;
                                             } else {
-                                                setActiveParagraphIndex(targetIndex);
-                                                // Sync precisely
-                                                isInternalVnNavigation.current = true;
-                                                renditionRef.current.display(chapterGraph[targetIndex].cfi);
+                                                // Sync precisely without brutally overwriting epubjs DOM rendering instructions!
+                                                setActiveParagraphIndex(resolveTargetIndex());
                                             }
                                         }
                                     } else {
-                                        // Standard Page Flip inside Same Chapter -> align active paragraph automatically
-                                        let indexCounter = 0;
-                                        let targetIndex = 0;
-                                        rawElements.forEach(element => {
-                                            const txt = element.textContent?.trim();
-                                            if (txt && txt.length > 5) {
-                                                if (targetElement && (element === targetElement || element.contains(targetElement) || targetElement.contains(element))) {
-                                                    targetIndex = indexCounter;
-                                                }
-                                                indexCounter++;
-                                            }
-                                        });
-                                        setActiveParagraphIndex(targetIndex);
+                                        // Standard Page Flip inside Same Chapter -> align active paragraph automatically silently
+                                        setActiveParagraphIndex(resolveTargetIndex());
                                     }
                                 } catch (err) {
                                     console.error("Chapter Extraction Error:", err);
