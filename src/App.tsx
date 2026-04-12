@@ -668,7 +668,7 @@ export default function App() {
                   <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-black/60 rounded-full border border-primary/20 shadow-inner backdrop-blur-sm">{chapterTitle}</span>
                   <span className="text-white/70 text-xs font-mono tracking-widest bg-black/60 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
                 </div>
-                <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto flex items-end" style={{ scrollbarWidth: 'none' }}>
+                <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
                   <p
                     className="font-body leading-[2] tracking-wide transition-all duration-300 text-white"
                     style={{
