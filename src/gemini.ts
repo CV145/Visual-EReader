@@ -27,7 +27,7 @@ export async function generateAmbientImage(promptContext: string, characterConte
   } else if (stylePref === 'comic-book') {
       styleDirective = "Generate a graphic novel page showing several different comic book panels/cells representing the sequence of events and environment described in this story excerpt. Comic book art style.";
   } else if (stylePref === 'character-portraits') {
-      styleDirective = "Generate a character concept art sheet featuring character portraits for the characters present in the excerpt. For each character depicted, clearly place the name of the character next to their portrait. Use a cohesive, high-quality character design art style.";
+      styleDirective = "Generate a character concept art sheet featuring character portraits for the characters present in the excerpt. Each portrait MUST include a fully rendered, contextual background behind the character that fits the scene's environment or their persona. For each character depicted, clearly place the name of the character next to their portrait. Use a cohesive, high-quality character design art style.";
   }
 
   const environmentSuffix = (includeCharacters || forceCharacters) ? "" : " No people, no characters, no figures. Environment only.";
