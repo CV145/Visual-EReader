@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import { SettingsModal } from './SettingsModal';
-import { generateAmbientImage, analyzeMusicalSentiment, extractCharacterProfiles, detectOverallGenre } from './gemini';
+import { generateAmbientImage, generateCharacterPortrait, analyzeMusicalSentiment, extractCharacterProfiles, detectOverallGenre } from './gemini';
 import { LyriaEngine } from './lyriaEngine';
 import LibraryPage from './LibraryPage';
 import {
@@ -33,6 +33,9 @@ export default function App() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [isTtsEnabled, setIsTtsEnabled] = useState(false);
+  const [portraitMode, setPortraitMode] = useState(false);
+  const [sceneCharacters, setSceneCharacters] = useState<string[]>([]);
+  const [isGeneratingPortraits, setIsGeneratingPortraits] = useState(false);
   const [ttsSpeed, setTtsSpeed] = useState(() => {
     const saved = localStorage.getItem('TTS_SPEED');
     return saved ? parseFloat(saved) : 1.0;
@@ -271,6 +274,21 @@ export default function App() {
     }
   }, [activeParagraphIndex, vnParagraphs, isMusicPlaying, isTtsEnabled, activeBook]);
 
+  // ─── Passive Scene Character Detection ────────────────────────────────────
+  // No AI — simple name-match per paragraph. Fast and free.
+  useEffect(() => {
+    if (vnParagraphs.length === 0 || characters.length === 0) {
+      setSceneCharacters([]);
+      return;
+    }
+    const currentText = vnParagraphs[activeParagraphIndex]?.text || '';
+    const lowerText = currentText.toLowerCase();
+    const present = characters
+      .filter(c => lowerText.includes(c.name.toLowerCase()))
+      .map(c => c.name);
+    setSceneCharacters(present);
+  }, [activeParagraphIndex, vnParagraphs, characters]);
+
   // ─── Font size effect ─────────────────────────────────────────────────────
   useEffect(() => {
     if (renditionRef.current) renditionRef.current.themes.fontSize(`${fontSize}%`);
@@ -479,6 +497,51 @@ export default function App() {
   // ─── Image Generation ─────────────────────────────────────────────────────
   const handleGenerate = async () => {
     if (!currentContextText || !activeBook) { alert("Please read a few pages first!"); return; }
+
+    // ── Portrait Mode ──────────────────────────────────────────────────────
+    if (portraitMode) {
+      setIsGeneratingPortraits(true);
+      try {
+        const extracted = await extractCharacterProfiles(currentContextText);
+        if (extracted.length === 0) { alert("No characters found in the current scene."); return; }
+
+        let latest = await loadCharacters(activeBook.id);
+        for (const char of extracted) {
+          const existingProfile = latest.find(c => c.name.toLowerCase() === char.name.toLowerCase());
+          const newDesc = char.description.trim();
+
+          // Upsert description first
+          const incoming: CharacterProfile = { name: char.name, description: newDesc, updatedAt: Date.now() };
+          latest = await upsertCharacter(activeBook.id, incoming);
+          const updatedProfile = latest.find(c => c.name.toLowerCase() === char.name.toLowerCase());
+
+          // Generate portrait if: no portrait yet, OR description has meaningfully changed
+          const shouldGenerate = !existingProfile?.portrait ||
+            (existingProfile && !existingProfile.description.includes(newDesc.slice(0, 40)));
+
+          if (shouldGenerate && updatedProfile) {
+            console.log(`🖼 Generating portrait for ${char.name}...`);
+            try {
+              const portrait = await generateCharacterPortrait(char.name, updatedProfile.description);
+              const portraitProfile: CharacterProfile = { ...updatedProfile, portrait, updatedAt: Date.now() };
+              const idx = latest.findIndex(c => c.name.toLowerCase() === char.name.toLowerCase());
+              if (idx >= 0) latest[idx] = portraitProfile;
+              await saveCharacters(activeBook.id, latest);
+            } catch (e) {
+              console.error(`Portrait generation failed for ${char.name}:`, e);
+            }
+          }
+        }
+        setCharacters(latest);
+      } catch (e: any) {
+        alert("Portrait generation failed. " + e.message);
+      } finally {
+        setIsGeneratingPortraits(false);
+      }
+      return;
+    }
+
+    // ── Scene Image Mode (default) ─────────────────────────────────────────
     setIsLoadingImage(true);
     try {
       // Build character context string for prompt injection
@@ -497,7 +560,7 @@ export default function App() {
       // Background character extraction after each image — always reads fresh from DB to avoid stale closure
       extractCharacterProfiles(currentContextText).then(async (extracted) => {
         if (extracted.length === 0 || !activeBook) return;
-        let latest = await loadCharacters(activeBook.id); // fresh from DB, not stale closure
+        let latest = await loadCharacters(activeBook.id);
         for (const char of extracted) {
           const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
           latest = await upsertCharacter(activeBook.id, profile);
@@ -510,6 +573,7 @@ export default function App() {
       setIsLoadingImage(false);
     }
   };
+
 
   // ─── Music ────────────────────────────────────────────────────────────────
   const toggleMusic = async () => {
@@ -645,10 +709,23 @@ export default function App() {
         {bookLoaded ? (
           <>
             <div className="absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
-              <button onClick={handleGenerate} disabled={isLoadingImage}
+              {/* Portrait Mode Toggle */}
+              <button
+                onClick={() => setPortraitMode(!portraitMode)}
+                title={portraitMode ? "Portrait Mode ON (click to switch to Scene Image)" : "Scene Image Mode (click to switch to Portrait Mode)"}
+                className={`border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 ${
+                  portraitMode ? 'bg-teal-600/90 hover:bg-teal-500' : 'bg-black/90 hover:bg-surface-container-high'
+                }`}>
+                <span className="material-symbols-outlined">{portraitMode ? 'face' : 'landscape'}</span>
+              </button>
+              <button onClick={handleGenerate} disabled={isLoadingImage || isGeneratingPortraits}
                 className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 disabled:opacity-60 disabled:cursor-not-allowed"
-                title={isLoadingImage ? "Generating..." : "Generate Scene Image"}>
-                {isLoadingImage ? <span className="material-symbols-outlined animate-spin">progress_activity</span> : <span className="material-symbols-outlined">magic_button</span>}
+                title={portraitMode
+                  ? (isGeneratingPortraits ? "Generating portraits..." : "Generate / Update Character Portraits")
+                  : (isLoadingImage ? "Generating..." : "Generate Scene Image")}>
+                {(isLoadingImage || isGeneratingPortraits)
+                  ? <span className="material-symbols-outlined animate-spin">progress_activity</span>
+                  : <span className="material-symbols-outlined">magic_button</span>}
               </button>
               <button onClick={() => { setDrawerTab('characters'); setIsDrawerOpen(true); }}
                 className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
@@ -673,6 +750,35 @@ export default function App() {
                   <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-black/60 rounded-full border border-primary/20 shadow-inner backdrop-blur-sm">{chapterTitle}</span>
                   <span className="text-white/70 text-xs font-mono tracking-widest bg-black/60 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
                 </div>
+
+                {/* Portrait Overlay — characters present in the current paragraph */}
+                {sceneCharacters.length > 0 && (
+                  <div className="flex gap-3 mb-3 shrink-0 flex-wrap">
+                    {sceneCharacters.map(name => {
+                      const profile = characters.find(c => c.name === name);
+                      return (
+                        <div key={name} className="flex flex-col items-center gap-1 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                          <div
+                            className="w-14 h-14 rounded-full overflow-hidden border-2 border-primary/60 shadow-lg bg-black/60 backdrop-blur-sm"
+                            title={profile?.description || name}
+                          >
+                            {profile?.portrait ? (
+                              <img src={profile.portrait} alt={name} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-primary/20">
+                                <span className="text-lg font-bold text-primary">{name.charAt(0).toUpperCase()}</span>
+                              </div>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-bold text-white/80 font-label uppercase tracking-wide bg-black/50 px-1.5 py-0.5 rounded-full">
+                            {name.split(' ')[0]}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto px-2" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
                   <p
                     className="font-body leading-[1.8] tracking-wide transition-all duration-300 text-gray-100 rounded-lg p-4"
@@ -834,8 +940,11 @@ export default function App() {
                             className="w-full flex items-center justify-between px-4 py-3 hover:bg-surface-container-highest transition-colors cursor-pointer text-left"
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center">
-                                <span className="text-xs font-bold text-primary">{char.name.charAt(0).toUpperCase()}</span>
+                              <div className="w-10 h-10 rounded-lg overflow-hidden border border-primary/30 flex items-center justify-center bg-primary/20 shrink-0">
+                                {char.portrait
+                                  ? <img src={char.portrait} alt={char.name} className="w-full h-full object-cover" />
+                                  : <span className="text-sm font-bold text-primary">{char.name.charAt(0).toUpperCase()}</span>
+                                }
                               </div>
                               <span className="text-sm font-bold text-on-surface font-body">{char.name}</span>
                             </div>
@@ -846,6 +955,9 @@ export default function App() {
                           </button>
                           {expandedCharacter === char.name && (
                             <div className="px-4 pb-4 bg-surface-container/50">
+                              {char.portrait && (
+                                <img src={char.portrait} alt={char.name} className="w-full h-40 object-cover rounded-lg mb-3 border border-outline-variant/20" />
+                              )}
                               <p className="text-xs text-on-surface-variant font-body leading-relaxed mb-3">{char.description}</p>
                               <button onClick={() => deleteCharacter(char.name)}
                                 className="text-[10px] text-red-400/70 hover:text-red-400 transition-colors cursor-pointer font-label uppercase tracking-wider flex items-center gap-1">

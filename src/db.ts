@@ -32,6 +32,7 @@ export interface GalleryImage {
 export interface CharacterProfile {
   name: string;
   description: string; // Appearance details extracted by AI
+  portrait?: string;   // Base64 data URL of AI-generated portrait (oil-painting style)
   updatedAt: number;
 }
 

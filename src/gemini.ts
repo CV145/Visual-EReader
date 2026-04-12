@@ -62,6 +62,30 @@ export async function generateAmbientImage(promptContext: string, characterConte
   }
 }
 
+/**
+ * Generates a painted character portrait, always in a consistent
+ * oil-painting / classical portrait art style regardless of scene style setting.
+ */
+export async function generateCharacterPortrait(name: string, description: string): Promise<string> {
+  const ai = getClient();
+  const prompt = `Create a classical oil-painting style character portrait of "${name}". Head-and-shoulders composition, neutral dark background, dramatic studio lighting. The character's physical appearance: ${description}. Style: Renaissance oil painting with rich colors, fine detail, visible brushstrokes. Portrait orientation. No text, no labels.`;
+
+  try {
+    const imageResponse = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: prompt,
+      config: { responseModalities: ["IMAGE"] }
+    });
+
+    const base64Image = imageResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64Image) throw new Error("No image data in portrait response.");
+    return `data:image/jpeg;base64,${base64Image}`;
+  } catch (error) {
+    console.error(`Error generating portrait for ${name}:`, error);
+    throw error;
+  }
+}
+
 export async function analyzeMusicalSentiment(paragraphsText: string, anchorGenre: string): Promise<string> {
    const ai = getClient();
    
