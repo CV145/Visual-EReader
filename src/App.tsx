@@ -33,7 +33,8 @@ export default function App() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [isTtsEnabled, setIsTtsEnabled] = useState(false);
-  //const [portraitMode, setPortraitMode] = useState(false);
+  const [currentAudioPrompt, setCurrentAudioPrompt] = useState('');
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [sceneCharacters, setSceneCharacters] = useState<string[]>([]);
   //const [isGeneratingPortraits, setIsGeneratingPortraits] = useState(false);
   const [ttsSpeed, setTtsSpeed] = useState(() => {
@@ -60,7 +61,7 @@ export default function App() {
 
   // ─── Drawer ───────────────────────────────────────────────────────────────
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<'toc' | 'bookmarks' | 'gallery' | 'characters'>('toc');
+  const [drawerTab, setDrawerTab] = useState<'toc' | 'bookmarks' | 'gallery' | 'characters' | 'genre'>('toc');
   const [tocItems, setTocItems] = useState<any[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [gallery, setGallery] = useState<GalleryImage[]>([]);
@@ -123,21 +124,6 @@ export default function App() {
     const data = await loadBookFile(book.id);
     if (data) {
       initEpub(data, book.id);
-      
-      // If genre isn't set yet, prompt the user to manually type it in
-if (!book.anchorGenre) {
-  const manualGenre = window.prompt(
-    "Please enter the musical anchor genre for this book (e.g., 'Western', 'Cyberpunk', 'Fantasy'):",
-    "Cinematic Instrumental"
-  );
-  
-  // Save the typed genre to the database so you don't have to type it again
-  if (manualGenre && manualGenre.trim() !== '') {
-    const updatedMeta = { ...book, anchorGenre: manualGenre.trim() };
-    await addBookToLibrary(updatedMeta);
-    setActiveBook(updatedMeta);
-  }
-}
     }
   }, []);
 
@@ -249,6 +235,9 @@ if (!book.anchorGenre) {
             const genre = activeBook?.anchorGenre || 'cinematic instrumental';
             analyzeMusicalSentiment(finalPayload, genre).then((sentiment) => {
               console.log(`🎵 Sentiment: "${sentiment}"`);
+
+              setCurrentAudioPrompt(sentiment);
+
               if (lyriaRef.current && isMusicPlaying) lyriaRef.current.setPrompts(sentiment);
             });
           }
@@ -550,6 +539,29 @@ if (!book.anchorGenre) {
     }
   };
 
+// ─── Manual Prompt Generation ──────────────────────────────────────────────
+  const handleGenerateAudioPrompt = async () => {
+    if (!activeBook || vnParagraphs.length === 0) return;
+    
+    setIsGeneratingPrompt(true);
+    try {
+      // Grab the next 25 paragraphs for context as requested
+      const contextForMusic = vnParagraphs
+        .slice(activeParagraphIndex, activeParagraphIndex + 25)
+        .map(p => p.text)
+        .join('\n');
+        
+      const genre = activeBook.anchorGenre || 'Cinematic Instrumental';
+      const prompt = await analyzeMusicalSentiment(contextForMusic, genre);
+      
+      setCurrentAudioPrompt(prompt);
+    } catch (e) {
+      console.error("Failed to generate audio prompt:", e);
+      alert("Failed to analyze scene for audio.");
+    } finally {
+      setIsGeneratingPrompt(false);
+    }
+  };
 
   // ─── Music ────────────────────────────────────────────────────────────────
   const toggleMusic = async () => {
@@ -796,10 +808,10 @@ if (!book.anchorGenre) {
 
             {/* Tabs */}
             <div className="flex border-b border-outline-variant/20 px-2">
-              {(['toc', 'bookmarks', 'gallery', 'characters'] as const).map(tab => (
+              {(['toc', 'bookmarks', 'gallery', 'characters', 'genre'] as const).map(tab => (
                 <button key={tab} onClick={() => setDrawerTab(tab)}
                   className={`flex-1 pb-3 pt-1 text-[10px] font-label font-bold uppercase tracking-widest text-center transition-colors cursor-pointer ${drawerTab === tab ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'}`}>
-                  {tab === 'toc' ? 'Chapters' : tab === 'characters' ? 'Cast' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  {tab === 'toc' ? 'Chapters' : tab === 'characters' ? 'Cast' : tab === 'genre' ? 'Audio' : tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
               ))}
             </div>
@@ -907,6 +919,77 @@ if (!book.anchorGenre) {
                       ))}
                     </ul>
                   )}
+                </div>
+              )}
+
+              {/* Genre / Audio Settings */}
+              {drawerTab === 'genre' && activeBook && (
+                <div className="px-4 py-6 flex flex-col gap-4 animate-in fade-in duration-300">
+                  <h3 className="text-sm font-headline font-bold text-on-surface uppercase tracking-widest">Soundtrack Anchor</h3>
+                  <p className="text-xs text-on-surface-variant font-body leading-relaxed">
+                    Set the core musical genre for this book (e.g., Cyberpunk, Ambient Fantasy, Western). 
+                    The Lyria audio engine uses this to dynamically steer the continuous background score.
+                  </p>
+                  <input
+                    type="text"
+                    defaultValue={activeBook.anchorGenre || ''}
+                    placeholder="Cinematic Instrumental"
+                    className="w-full bg-surface-container border border-outline-variant/30 rounded-lg px-4 py-3 text-sm text-on-surface focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim() || 'Cinematic Instrumental';
+                      if (val !== activeBook.anchorGenre) {
+                        const updatedMeta = { ...activeBook, anchorGenre: val };
+                        await addBookToLibrary(updatedMeta);
+                        setActiveBook(updatedMeta);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.currentTarget.blur();
+                      }
+                    }}
+                  />
+
+                  {/* --- NEW SCENE PROMPT SECTION --- */}
+                  <div className="mt-4 border-t border-outline-variant/30 pt-6">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-headline font-bold text-on-surface uppercase tracking-widest">Scene Prompt</h3>
+                      <div className="flex gap-2 items-center">
+                        <button 
+                          onClick={handleGenerateAudioPrompt}
+                          disabled={isGeneratingPrompt}
+                          className="text-[11px] flex items-center gap-1.5 bg-surface-variant hover:bg-surface-container-highest text-on-surface px-3 py-1.5 rounded-md transition-colors cursor-pointer font-bold uppercase tracking-wider disabled:opacity-50"
+                        >
+                          {isGeneratingPrompt ? (
+                            <span className="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>
+                          ) : (
+                            <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
+                          )}
+                          Generate
+                        </button>
+                        <button 
+                          onClick={() => {
+                            if (currentAudioPrompt) navigator.clipboard.writeText(currentAudioPrompt);
+                          }}
+                          disabled={!currentAudioPrompt}
+                          className="text-[11px] flex items-center gap-1.5 bg-primary/20 hover:bg-primary hover:text-on-primary text-primary px-3 py-1.5 rounded-md transition-colors cursor-pointer font-bold uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Copy to Clipboard"
+                        >
+                          <span className="material-symbols-outlined text-[14px]">content_copy</span> Copy
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-on-surface-variant mb-3 leading-relaxed">
+                      Analyze the next 25 paragraphs to generate a prompt, then copy it to create a high-fidelity track in Google AI Studio.
+                    </p>
+                    <textarea
+                      readOnly
+                      value={currentAudioPrompt || (isGeneratingPrompt ? "Analyzing scene..." : "Click 'Generate' to analyze the current scene...")}
+                      className="w-full h-32 bg-surface-container-highest border border-outline-variant/20 rounded-lg p-3 text-xs font-mono text-on-surface-variant resize-none focus:outline-none focus:border-primary/50 transition-colors"
+                    />
+                  </div>
+                  {/* -------------------------------- */}
+
                 </div>
               )}
             </div>

@@ -6,6 +6,7 @@ export class LyriaEngine {
     private audioCtx: AudioContext | null = null;
     private isPlaying = false;
     private nextPlayTime = 0;
+    private isFirstChunk = true;
     private UIStateCallback: ((playing: boolean) => void) | null = null;
 
     attachCallback(cb: (playing: boolean) => void) {
@@ -36,6 +37,7 @@ export class LyriaEngine {
         if (this.audioCtx.state === 'suspended') await this.audioCtx.resume();
         this.nextPlayTime = this.audioCtx.currentTime;
         this.isPlaying = true;
+        this.isFirstChunk = true;
 
         try {
             this.session = await this.client.live.music.connect({
@@ -117,6 +119,16 @@ export class LyriaEngine {
         }
     }
 
+    warmup() {
+        // Unlocks the audio context instantly when called during a click event
+        if (!this.audioCtx) {
+            this.audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+        }
+        if (this.audioCtx.state === 'suspended') {
+            this.audioCtx.resume();
+        }
+    }
+
     private decodeAndScheduleChunk(base64Data: string) {
         if (!this.audioCtx) return;
 
@@ -149,14 +161,20 @@ export class LyriaEngine {
             const source = this.audioCtx.createBufferSource();
             source.buffer = audioBuffer;
             
-            source.connect(this.audioCtx.destination);
-
             const currentTime = this.audioCtx.currentTime;
             
             // Queue seamlessly precisely aligned with the conclusion timeline frame mathematically
             if (this.nextPlayTime < currentTime) {
-                 // Prevent popping on hard underruns natively!
-                 this.nextPlayTime = currentTime + 0.1; 
+                 if (this.isFirstChunk) {
+                     // Initial Deep Buffer: Wait 2.5 seconds before starting the first note 
+                     // to absorb all major network jitter and generation latency.
+                     this.nextPlayTime = currentTime + 2.5;
+                     this.isFirstChunk = false;
+                 } else {
+                     // Micro-Recovery: If we still manage to underrun mid-song, 
+                     // recover almost instantly so the drop-out isn't as noticeable.
+                     this.nextPlayTime = currentTime + 0.2;
+                 }
             }
             
             source.start(this.nextPlayTime);
