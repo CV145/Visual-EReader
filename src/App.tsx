@@ -601,6 +601,25 @@ export default function App() {
     return <LibraryPage onOpenBook={openBook} />;
   }
 
+  // ─── TOC Recursive Render Helper ──────────────────────────────────────────
+  const renderTocItems = (items: any[], depth = 0): any => {
+    return items.map((item: any, idx: number) => (
+      <React.Fragment key={`${item.id || idx}-${depth}`}>
+        <li>
+          <button 
+            onClick={() => navigateToHref(item.href)} 
+            className={`w-full text-left pr-3 py-2 rounded-lg transition-colors font-body cursor-pointer truncate hover:bg-surface-container-highest hover:text-primary ${depth === 0 ? 'text-on-surface text-sm font-bold' : 'text-on-surface-variant text-xs'}`}
+            style={{ paddingLeft: `${(depth * 1.5) + 0.75}rem` }}
+          >
+            {item.label?.trim()}
+          </button>
+        </li>
+        {/* If this item has nested chapters, call this exact same function again */}
+        {item.subitems && item.subitems.length > 0 && renderTocItems(item.subitems, depth + 1)}
+      </React.Fragment>
+    ));
+  };
+
   // ─── Reader View ─────────────────────────────────────────────────────────
   return (
     <>
@@ -818,17 +837,11 @@ export default function App() {
 
             <div className="flex-1 overflow-y-auto px-2 py-3">
               {/* TOC */}
+              {/* TOC */}
               {drawerTab === 'toc' && (
                 <ul className="space-y-0.5">
                   {tocItems.length === 0 && <li className="text-on-surface-variant text-sm text-center py-8">No table of contents available.</li>}
-                  {tocItems.map((item: any, idx: number) => (
-                    <React.Fragment key={idx}>
-                      <li><button onClick={() => navigateToHref(item.href)} className="w-full text-left px-3 py-2.5 rounded-lg text-on-surface hover:bg-surface-container-highest hover:text-primary transition-colors text-sm font-body cursor-pointer truncate">{item.label?.trim()}</button></li>
-                      {item.subitems?.map((sub: any, subIdx: number) => (
-                        <li key={`${idx}-${subIdx}`}><button onClick={() => navigateToHref(sub.href)} className="w-full text-left pl-8 pr-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-highest hover:text-primary transition-colors text-xs font-body cursor-pointer truncate">{sub.label?.trim()}</button></li>
-                      ))}
-                    </React.Fragment>
-                  ))}
+                  {renderTocItems(tocItems)}
                 </ul>
               )}
 
