@@ -836,7 +836,7 @@ export default function App() {
               {drawerTab === 'bookmarks' && (
                 <ul className="space-y-1">
                   {bookmarks.length === 0 && <li className="text-on-surface-variant text-sm text-center py-8">No bookmarks yet.<br />Use the bookmark button at the bottom.</li>}
-                  {bookmarks.map((bm, idx) => (
+                  {[...bookmarks].sort((a, b) => b.timestamp - a.timestamp).map((bm, idx) => (
                     <li key={idx} className="flex items-center gap-2 group">
                       <button onClick={() => navigateToBookmark(bm)} className="flex-1 text-left px-3 py-2.5 rounded-lg text-on-surface hover:bg-surface-container-highest hover:text-primary transition-colors cursor-pointer truncate">
                         <span className="text-sm font-body block truncate">{bm.label}{bm.paragraphIndex ? ` — Para ${bm.paragraphIndex}` : ''}</span>
@@ -883,7 +883,7 @@ export default function App() {
                     </div>
                   ) : (
                     <ul className="space-y-2">
-                      {characters.map((char) => (
+                      {[...characters].sort((a, b) => b.updatedAt - a.updatedAt).map((char) => (
                         <li key={char.name} className="group border border-outline-variant/20 rounded-xl overflow-hidden">
                           <button
                             onClick={() => setExpandedCharacter(expandedCharacter === char.name ? null : char.name)}
