@@ -124,28 +124,20 @@ export default function App() {
     if (data) {
       initEpub(data, book.id);
       
-      // If genre isn't detected yet, perform an initial analysis for music anchoring
-      if (!book.anchorGenre) {
-        try {
-          const ePub = (await import('epubjs')).default;
-          const tempBook = ePub(data as any);
-          await tempBook.ready;
-          const firstSection = tempBook.spine.get(0);
-          if (firstSection) {
-            const doc = await firstSection.load(tempBook.load.bind(tempBook));
-            const text = doc?.body?.textContent?.slice(0, 3000) || "";
-            if (text.length > 20) {
-              const detected = await detectOverallGenre(text);
-              const updatedMeta = { ...book, anchorGenre: detected };
-              await addBookToLibrary(updatedMeta);
-              setActiveBook(updatedMeta);
-            }
-          }
-          tempBook.destroy();
-        } catch (err) {
-          console.warn("Genre detection failed, will retry next open:", err);
-        }
-      }
+      // If genre isn't set yet, prompt the user to manually type it in
+if (!book.anchorGenre) {
+  const manualGenre = window.prompt(
+    "Please enter the musical anchor genre for this book (e.g., 'Western', 'Cyberpunk', 'Fantasy'):",
+    "Cinematic Instrumental"
+  );
+  
+  // Save the typed genre to the database so you don't have to type it again
+  if (manualGenre && manualGenre.trim() !== '') {
+    const updatedMeta = { ...book, anchorGenre: manualGenre.trim() };
+    await addBookToLibrary(updatedMeta);
+    setActiveBook(updatedMeta);
+  }
+}
     }
   }, []);
 
