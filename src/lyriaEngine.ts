@@ -74,9 +74,11 @@ export class LyriaEngine {
     async setPrompts(prompt: string) {
         if (!this.session || !this.isPlaying) return;
         
-        // Push the dynamic sentiment keywords from Flash into Lyria, anchoring them purely to instrumental rules
+        // Push the dynamic sentiment keywords from Flash into Lyria, anchoring them purely to rhythm and texture rules
         const safePrompt = `Instrumental background music, absolutely continuous, no vocals. Keywords: ` + prompt.slice(0, 300);
         
+        console.log("🎵 Steering Lyria with prompt:", safePrompt);
+
         try {
             await this.session.setWeightedPrompts({
                 weightedPrompts: [
