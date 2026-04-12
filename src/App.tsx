@@ -16,6 +16,7 @@ import {
 interface VnParagraph {
   text: string;
   cfi: string;
+  html?: string;
 }
 
 export default function App() {
@@ -397,7 +398,14 @@ export default function App() {
                         const txt = element.textContent?.trim();
                         if (txt && txt.length > 5) {
                           const nativeCfi = correctContents.cfiFromNode(element);
-                          if (nativeCfi) chapterGraph.push({ text: txt, cfi: nativeCfi });
+                          if (nativeCfi) {
+                            // Safely grab the raw HTML without forcing a layout recalculation
+                            chapterGraph.push({ 
+                                text: txt, 
+                                cfi: nativeCfi, 
+                                html: element.innerHTML 
+                            });
+                          }
                         }
                       });
                       if (chapterGraph.length > 0) {
@@ -749,15 +757,27 @@ export default function App() {
 
 
                 <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto px-2" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
-                  <p
-                    className="font-body leading-[1.8] tracking-wide transition-all duration-300 text-gray-100 rounded-lg p-4"
-                    style={{
-                      fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem`,
-                      backgroundColor: 'rgba(0,0,0,0.25)',
-                    }}
-                  >
-                    {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? vnParagraphs[activeParagraphIndex].text : "Loading content..."}
-                  </p>
+                  {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? (
+                    <div
+                      className="font-body leading-[1.8] tracking-wide transition-all duration-300 rounded-lg p-4 epub-html-content"
+                      style={{
+                        fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem`,
+                        backgroundColor: 'rgba(0,0,0,0.25)',
+                        color: 'rgba(243, 244, 246, 1)' /* Tailwind text-gray-100 */
+                      }}
+                      dangerouslySetInnerHTML={{ __html: vnParagraphs[activeParagraphIndex].html || '' }}
+                    />
+                  ) : (
+                    <p
+                      className="font-body leading-[1.8] tracking-wide transition-all duration-300 text-gray-100 rounded-lg p-4"
+                      style={{
+                        fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem`,
+                        backgroundColor: 'rgba(0,0,0,0.25)',
+                      }}
+                    >
+                      Loading content...
+                    </p>
+                  )}
                 </div>
               </div>
             )}
