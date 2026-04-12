@@ -673,7 +673,7 @@ export default function App() {
                     className="font-body leading-[1.8] tracking-wide transition-all duration-300 text-gray-100 rounded-lg p-4"
                     style={{
                       fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem`,
-                      backgroundColor: 'rgba(0,0,0,0.75)',
+                      backgroundColor: 'rgba(0,0,0,0.25)',
                     }}
                   >
                     {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? vnParagraphs[activeParagraphIndex].text : "Loading content..."}
