@@ -57,6 +57,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
             <option value="visual-novel">1st Person POV Visual Novel</option>
             <option value="tabletop">Topdown Tabletop Minifigures</option>
             <option value="comic-book">Graphic Novel / Comic Cells</option>
+            <option value="character-portraits">Character Portraits</option>
           </select>
         </div>
 

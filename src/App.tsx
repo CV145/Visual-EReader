@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import { SettingsModal } from './SettingsModal';
-import { generateAmbientImage, generateCharacterPortrait, analyzeMusicalSentiment, extractCharacterProfiles, detectOverallGenre } from './gemini';
+import { generateAmbientImage, analyzeMusicalSentiment, extractCharacterProfiles, detectOverallGenre } from './gemini';
 import { LyriaEngine } from './lyriaEngine';
 import LibraryPage from './LibraryPage';
 import {
@@ -33,9 +33,9 @@ export default function App() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [isTtsEnabled, setIsTtsEnabled] = useState(false);
-  const [portraitMode, setPortraitMode] = useState(false);
+  //const [portraitMode, setPortraitMode] = useState(false);
   const [sceneCharacters, setSceneCharacters] = useState<string[]>([]);
-  const [isGeneratingPortraits, setIsGeneratingPortraits] = useState(false);
+  //const [isGeneratingPortraits, setIsGeneratingPortraits] = useState(false);
   const [ttsSpeed, setTtsSpeed] = useState(() => {
     const saved = localStorage.getItem('TTS_SPEED');
     return saved ? parseFloat(saved) : 1.0;
@@ -494,61 +494,43 @@ export default function App() {
     if (isCurrentPageBookmarked) await removeBookmark(currentCfi); else await addBookmark();
   };
 
-  // ─── Image Generation ─────────────────────────────────────────────────────
+// ─── Image Generation ─────────────────────────────────────────────────────
   const handleGenerate = async () => {
-    if (!currentContextText || !activeBook) { alert("Please read a few pages first!"); return; }
+    if (!activeBook) { alert("Please open a book first!"); return; }
+    
+    // Pass the next 25 paragraphs from the current one as context
+    const contextForImage = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 25).map(p => p.text).join('\n');
+    if (!contextForImage) { alert("Please read a few pages first!"); return; }
 
-    // ── Portrait Mode ──────────────────────────────────────────────────────
-    if (portraitMode) {
-      setIsGeneratingPortraits(true);
-      try {
-        const extracted = await extractCharacterProfiles(currentContextText);
-        if (extracted.length === 0) { alert("No characters found in the current scene."); return; }
-
-        let latest = await loadCharacters(activeBook.id);
-        for (const char of extracted) {
-          const existingProfile = latest.find(c => c.name.toLowerCase() === char.name.toLowerCase());
-          const newDesc = char.description.trim();
-
-          // Upsert description first
-          const incoming: CharacterProfile = { name: char.name, description: newDesc, updatedAt: Date.now() };
-          latest = await upsertCharacter(activeBook.id, incoming);
-          const updatedProfile = latest.find(c => c.name.toLowerCase() === char.name.toLowerCase());
-
-          // Generate portrait if: no portrait yet, OR description has meaningfully changed
-          const shouldGenerate = !existingProfile?.portrait ||
-            (existingProfile && !existingProfile.description.includes(newDesc.slice(0, 40)));
-
-          if (shouldGenerate && updatedProfile) {
-            console.log(`🖼 Generating portrait for ${char.name}...`);
-            try {
-              const portrait = await generateCharacterPortrait(char.name, updatedProfile.description);
-              const portraitProfile: CharacterProfile = { ...updatedProfile, portrait, updatedAt: Date.now() };
-              const idx = latest.findIndex(c => c.name.toLowerCase() === char.name.toLowerCase());
-              if (idx >= 0) latest[idx] = portraitProfile;
-              await saveCharacters(activeBook.id, latest);
-            } catch (e) {
-              console.error(`Portrait generation failed for ${char.name}:`, e);
-            }
-          }
-        }
-        setCharacters(latest);
-      } catch (e: any) {
-        alert("Portrait generation failed. " + e.message);
-      } finally {
-        setIsGeneratingPortraits(false);
-      }
-      return;
-    }
-
-    // ── Scene Image Mode (default) ─────────────────────────────────────────
     setIsLoadingImage(true);
     try {
-      // Build character context string for prompt injection
-      const characterContext = characters.length > 0
+      const stylePref = localStorage.getItem('IMAGE_STYLE_PREF') || 'cinematic';
+      
+      let finalCharacterContext = characters.length > 0
         ? characters.map(c => `${c.name}: ${c.description}`).join('\n')
         : undefined;
-      const newBg = await generateAmbientImage(currentContextText, characterContext);
+
+      // If generating "Character Portraits", immediately evaluate profiles before image generation
+      if (stylePref === 'character-portraits') {
+        const extracted = await extractCharacterProfiles(contextForImage);
+        let latest = await loadCharacters(activeBook.id);
+        
+        for (const char of extracted) {
+          const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
+          latest = await upsertCharacter(activeBook.id, profile);
+        }
+        setCharacters(latest);
+        
+        // Pass strictly the characters dynamically found in the scene to prevent unrelated generation
+        const extractedNames = extracted.map(e => e.name.toLowerCase());
+        const presentCharacters = latest.filter(c => extractedNames.includes(c.name.toLowerCase()));
+        
+        finalCharacterContext = presentCharacters.length > 0 
+          ? presentCharacters.map(c => `${c.name}: ${c.description}`).join('\n')
+          : undefined;
+      }
+
+      const newBg = await generateAmbientImage(contextForImage, finalCharacterContext);
       setBgImage(newBg);
 
       // Save to gallery
@@ -557,16 +539,18 @@ export default function App() {
       setGallery(updatedGallery);
       await saveGallery(activeBook.id, updatedGallery);
 
-      // Background character extraction after each image — always reads fresh from DB to avoid stale closure
-      extractCharacterProfiles(currentContextText).then(async (extracted) => {
-        if (extracted.length === 0 || !activeBook) return;
-        let latest = await loadCharacters(activeBook.id);
-        for (const char of extracted) {
-          const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
-          latest = await upsertCharacter(activeBook.id, profile);
-        }
-        setCharacters(latest);
-      });
+      // Passive background character extraction for other styles
+      if (stylePref !== 'character-portraits') {
+        extractCharacterProfiles(contextForImage).then(async (extracted) => {
+          if (extracted.length === 0 || !activeBook) return;
+          let latest = await loadCharacters(activeBook.id);
+          for (const char of extracted) {
+            const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
+            latest = await upsertCharacter(activeBook.id, profile);
+          }
+          setCharacters(latest);
+        });
+      }
     } catch (e: any) {
       alert("Failed to generate image. " + e.message);
     } finally {
@@ -709,21 +693,10 @@ export default function App() {
         {bookLoaded ? (
           <>
             <div className="absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
-              {/* Portrait Mode Toggle */}
-              <button
-                onClick={() => setPortraitMode(!portraitMode)}
-                title={portraitMode ? "Portrait Mode ON (click to switch to Scene Image)" : "Scene Image Mode (click to switch to Portrait Mode)"}
-                className={`border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 ${
-                  portraitMode ? 'bg-teal-600/90 hover:bg-teal-500' : 'bg-black/90 hover:bg-surface-container-high'
-                }`}>
-                <span className="material-symbols-outlined">{portraitMode ? 'face' : 'landscape'}</span>
-              </button>
-              <button onClick={handleGenerate} disabled={isLoadingImage || isGeneratingPortraits}
+              <button onClick={handleGenerate} disabled={isLoadingImage}
                 className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 disabled:opacity-60 disabled:cursor-not-allowed"
-                title={portraitMode
-                  ? (isGeneratingPortraits ? "Generating portraits..." : "Generate / Update Character Portraits")
-                  : (isLoadingImage ? "Generating..." : "Generate Scene Image")}>
-                {(isLoadingImage || isGeneratingPortraits)
+                title={isLoadingImage ? "Generating..." : "Generate Scene Image"}>
+                {isLoadingImage
                   ? <span className="material-symbols-outlined animate-spin">progress_activity</span>
                   : <span className="material-symbols-outlined">magic_button</span>}
               </button>

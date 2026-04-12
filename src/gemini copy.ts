@@ -9,16 +9,16 @@ const getClient = () => {
 export async function generateAmbientImage(promptContext: string, characterContext?: string): Promise<string> {
   const ai = getClient();
   
+  // Check if user wants characters in the image
   const includeCharacters = localStorage.getItem('INCLUDE_CHARACTERS') === 'true';
-  const stylePref = localStorage.getItem('IMAGE_STYLE_PREF') || 'cinematic';
   
-  // Force characters to be included if the style is "character-portraits"
-  const forceCharacters = stylePref === 'character-portraits';
-  
-  const characterDirective = (includeCharacters || forceCharacters)
+  const characterDirective = includeCharacters
     ? "Include any characters described in the scene."
     : "Do NOT include any characters, people, or figures. Focus ONLY on the environment, landscape, architecture, and atmospheric setting.";
 
+  // Fetch Style Preferences
+  const stylePref = localStorage.getItem('IMAGE_STYLE_PREF') || 'cinematic';
+  
   let styleDirective = "Generate a 1st person Point of View (POV) cinematic masterpiece, photorealistic 8k resolution image. The viewpoint should be from the absolute perspective of the main character looking out at the world dynamically in front of them, like real life or a highly realistic movie scene.";
   if (stylePref === 'visual-novel') {
       styleDirective = "Generate an anime-style 1st person Point of View (POV) visual novel background representing the environment described in this story excerpt. High quality 2D anime art style.";
@@ -26,11 +26,10 @@ export async function generateAmbientImage(promptContext: string, characterConte
       styleDirective = "Generate a top-down tabletop miniature diorama style image representing the scene. The viewpoint should be looking down at a tabletop map. Any characters must be depicted as tiny plastic or resin minifigures with a small floating nameplate or text base showing their name next to them.";
   } else if (stylePref === 'comic-book') {
       styleDirective = "Generate a graphic novel page showing several different comic book panels/cells representing the sequence of events and environment described in this story excerpt. Comic book art style.";
-  } else if (stylePref === 'character-portraits') {
-      styleDirective = "Generate a character concept art sheet featuring character portraits for the characters present in the excerpt. For each character depicted, clearly place the name of the character next to their portrait. Use a cohesive, high-quality character design art style.";
   }
 
-  const environmentSuffix = (includeCharacters || forceCharacters) ? "" : " No people, no characters, no figures. Environment only.";
+  // Create a direct prompt to the multimodal model
+  const environmentSuffix = includeCharacters ? "" : " No people, no characters, no figures. Environment only.";
   const characterSheet = characterContext ? `\n\nKnown Character Appearances (maintain strict visual consistency):\n${characterContext}` : '';
   const directPrompt = `${styleDirective}. Emphasize lighting, atmosphere, and colors. ${characterDirective}${environmentSuffix}${characterSheet}\n\nStory Excerpt:\n"${promptContext}"`;
 
@@ -63,6 +62,30 @@ export async function generateAmbientImage(promptContext: string, characterConte
   }
 }
 
+/**
+ * Generates a painted character portrait, always in a consistent
+ * oil-painting / classical portrait art style regardless of scene style setting.
+ */
+export async function generateCharacterPortrait(name: string, description: string): Promise<string> {
+  const ai = getClient();
+  const prompt = `Create a classical oil-painting style character portrait of "${name}". Head-and-shoulders composition, neutral dark background, dramatic studio lighting. The character's physical appearance: ${description}. Style: Renaissance oil painting with rich colors, fine detail, visible brushstrokes. Portrait orientation. No text, no labels.`;
+
+  try {
+    const imageResponse = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: prompt,
+      config: { responseModalities: ["IMAGE"] }
+    });
+
+    const base64Image = imageResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64Image) throw new Error("No image data in portrait response.");
+    return `data:image/jpeg;base64,${base64Image}`;
+  } catch (error) {
+    console.error(`Error generating portrait for ${name}:`, error);
+    throw error;
+  }
+}
+
 export async function analyzeMusicalSentiment(paragraphsText: string, anchorGenre: string): Promise<string> {
    const ai = getClient();
    
@@ -76,6 +99,11 @@ export async function analyzeMusicalSentiment(paragraphsText: string, anchorGenr
    - This score should adapt DYNAMICALLY to the scene's emotion.
    - NO lyrics or vocals.
    - Use textures and instrumentation appropriate for ${anchorGenre}.
+   
+   Examples of valid outputs for "${anchorGenre}":
+   - "High-tension orchestral strings, driving percussion, fast tempo, cinematic"
+   - "Melancholy, delicate piano melody, light woodwinds, airy textures, slow"
+   - "Epic, rising brass, powerful drums, heroic theme"
    
    Story Excerpt:
    "${paragraphsText}"`;
@@ -125,7 +153,7 @@ export async function extractCharacterProfiles(paragraphsText: string): Promise<
    const ai = getClient();
    const prompt = `You are a meticulous Character Designer reading a story. Extract all NAMED characters and describe their physical appearance only.
    Output ONLY a valid JSON array with objects having "name" and "description" fields. "description" = physical appearance ONLY (hair, eyes, skin, build, clothing). If none found, output []. No text outside the JSON array.
-   Story Excerpt: "${paragraphsText.slice(0, 15000)}"`; // Increased slice to handle 25 paragraphs
+   Story Excerpt: "${paragraphsText.slice(0, 2000)}"`;
    try {
        const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
        const raw = (response.text || '[]').trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
