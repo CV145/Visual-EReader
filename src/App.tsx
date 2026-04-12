@@ -248,7 +248,7 @@ export default function App() {
       const finalPayload = rawText.split(' ').slice(0, 1500).join(' ');
       if (finalPayload.length > 10) {
         setCurrentContextText(finalPayload);
-        if (isMusicPlaying && lyriaRef.current && (activeParagraphIndex % 10 === 0) && activeBook.anchorGenre) {
+        if (isMusicPlaying && lyriaRef.current && (activeParagraphIndex % 3 === 0) && activeBook.anchorGenre) {
           analyzeMusicalSentiment(finalPayload, activeBook.anchorGenre).then((sentiment) => {
             if (lyriaRef.current && isMusicPlaying) lyriaRef.current.setPrompts(sentiment);
           });
