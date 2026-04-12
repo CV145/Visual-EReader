@@ -33,6 +33,10 @@ export default function App() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [isTtsEnabled, setIsTtsEnabled] = useState(false);
+  const [ttsSpeed, setTtsSpeed] = useState(() => {
+    const saved = localStorage.getItem('TTS_SPEED');
+    return saved ? parseFloat(saved) : 1.0;
+  });
 
   // ─── VN State ─────────────────────────────────────────────────────────────
   const [isStretchImage, setIsStretchImage] = useState(false);
@@ -255,7 +259,7 @@ export default function App() {
       if (isTtsEnabled && activeNode) {
         window.speechSynthesis.cancel();
         const utter = new SpeechSynthesisUtterance(activeNode.text);
-        utter.rate = 0.95;
+        utter.rate = ttsSpeed;
         utter.pitch = 1.0;
         window.speechSynthesis.speak(utter);
       }
@@ -581,13 +585,36 @@ export default function App() {
             <span className="text-xs font-bold uppercase tracking-wider font-label whitespace-nowrap hidden sm:inline">{isMusicPlaying ? 'Stop Audio' : 'Start Audio'}</span>
           </button>
           {/* TTS Toggle */}
-          <button
-            onClick={toggleTts}
-            title={isTtsEnabled ? "Disable Narration" : "Enable Narration"}
-            className={`transition-colors duration-300 p-2 rounded-lg cursor-pointer ${isTtsEnabled ? 'text-green-400 bg-surface-container' : 'text-primary hover:bg-surface-container-high'}`}
-          >
-            <span className="material-symbols-outlined text-sm">{isTtsEnabled ? 'record_voice_over' : 'voice_over_off'}</span>
-          </button>
+          <div className="flex items-center gap-1 bg-surface-container rounded-lg px-1.5 py-1 border border-surface-container-highest">
+            <button
+              onClick={toggleTts}
+              title={isTtsEnabled ? "Disable Narration" : "Enable Narration"}
+              className={`transition-colors duration-300 p-2 rounded-lg cursor-pointer ${isTtsEnabled ? 'text-green-400' : 'text-primary hover:bg-surface-container-high'}`}
+            >
+              <span className="material-symbols-outlined text-sm">{isTtsEnabled ? 'record_voice_over' : 'voice_over_off'}</span>
+            </button>
+            {isTtsEnabled && (
+              <button
+                onClick={() => {
+                  const nextRates = [1.0, 1.5, 2.0];
+                  const idx = nextRates.indexOf(ttsSpeed);
+                  const next = nextRates[(idx + 1) % nextRates.length];
+                  setTtsSpeed(next);
+                  localStorage.setItem('TTS_SPEED', next.toString());
+                  // Also re-speak current if playing
+                  if (vnParagraphs[activeParagraphIndex]) {
+                    window.speechSynthesis.cancel();
+                    const utter = new SpeechSynthesisUtterance(vnParagraphs[activeParagraphIndex].text);
+                    utter.rate = next;
+                    window.speechSynthesis.speak(utter);
+                  }
+                }}
+                className="text-[10px] font-bold font-mono px-1.5 py-1 rounded bg-black/20 text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
+              >
+                {ttsSpeed}x
+              </button>
+            )}
+          </div>
           <button onClick={() => { setDrawerTab('toc'); setIsDrawerOpen(true); }} title="Table of Contents" className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer">
             <span className="material-symbols-outlined">menu_book</span>
           </button>
