@@ -62,16 +62,25 @@ export async function generateAmbientImage(promptContext: string, characterConte
   }
 }
 
-export async function analyzeMusicalSentiment(paragraphsText: string): Promise<string> {
+export async function analyzeMusicalSentiment(paragraphsText: string, anchorGenre: string): Promise<string> {
    const ai = getClient();
    
-   const systemPrompt = `You are a talented Cinematic Soundtrack Director. Your job is to analyze the following story excerpt and determine the PERFECT background music for the scene.
-   Output EXACTLY one single line of comma-separated musical keywords describing the genre, mood, tempo, and instruments. 
-   Do NOT output conversational text, explanations, or quotes. Do NOT include lyrics or vocals. 
-   Examples of valid outputs:
-   - "Fast-paced tension, intense orchestral strings, racing heartbeat, dark gritty rock, heavy electric guitar"
-   - "Calm, ambient drones, ethereal choir, very slow tempo, relaxing, mystical"
-   - "Upbeat, cheerful pop, bouncy piano, light acoustic guitar, rhythmic"
+   const systemPrompt = `You are a talented Cinematic Soundtrack Director. Your job is to analyze the following story excerpt and determine the PERFECT atmospheric background music for the scene.
+   The overall book genre is: "${anchorGenre}".
+   
+   Output EXACTLY one single line of comma-separated musical keywords describing the mood, tempo, and instruments. 
+   STAY WITHIN THE STYLE OF THE OVERALL BOOK GENRE (${anchorGenre}).
+   
+   IMPORTANT:
+   - This is for reading a book. The music must be low-intensity, ambient, and non-distracting.
+   - NO lyrics or vocals.
+   - NO heavy or aggressive percussion.
+   - Modulate the mood (e.g., Tense, Melancholy, Heroic) using textures and instrumentation appropriate for ${anchorGenre}.
+   
+   Examples of valid outputs for "${anchorGenre}":
+   - "Tense, low-intensity strings, atmospheric pads, slow heartbeat rhythm"
+   - "Melancholy, delicate piano melody, light woodwinds, airy textures"
+   - "Calm, slow-tempo drones, soft ethereal layers, soothing"
    
    Story Excerpt:
    "${paragraphsText}"`;
@@ -82,13 +91,34 @@ export async function analyzeMusicalSentiment(paragraphsText: string): Promise<s
            contents: systemPrompt
        });
        
-       const text = response.text || "ambient background music, cinematic";
-       console.log("Sentiment Generated:", text);
+       const text = response.text || `ambient ${anchorGenre} music`;
+       console.log("Sentiment Generated (Anchored):", text);
        return text;
    } catch (error) {
        console.error("Error analyzing musical sentiment:", error);
-       return "ambient background music, calm, cinematic"; // Safe fallback
+       return `ambient ${anchorGenre} background music, calm`; // Safe fallback
    }
+}
+
+export async function detectOverallGenre(excerpt: string): Promise<string> {
+  const ai = getClient();
+  const prompt = `Analyze the following story excerpt and determine the single most appropriate overarching MUSICAL GENRE/STYLE for its background soundtrack. 
+  Output ONLY the genre name (2-3 words, e.g., "Atmospheric Western", "Orchestral Fantasy", "Industrial Cyberpunk", "Regency Piano Noir").
+  Focus on the setting, period, and tone.
+  
+  Excerpt:
+  "${excerpt.slice(0, 3000)}"`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt
+    });
+    return response.text?.trim() || "Ambient Cinematic";
+  } catch (err) {
+    console.error("Error detecting overall genre:", err);
+    return "Ambient Cinematic";
+  }
 }
 
 export interface ExtractedCharacter {

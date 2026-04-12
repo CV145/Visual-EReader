@@ -75,7 +75,7 @@ export class LyriaEngine {
         if (!this.session || !this.isPlaying) return;
         
         // Push the dynamic sentiment keywords from Flash into Lyria, anchoring them purely to instrumental rules
-        const safePrompt = `Instrumental background music, absolutely continuous, no vocals. Keywords: ` + prompt.slice(0, 300);
+        const safePrompt = `Extremely non-distracting, low-intensity background accompaniment, instrumental, absolutely continuous, no vocals. Keywords: ` + prompt.slice(0, 300);
         
         try {
             await this.session.setWeightedPrompts({

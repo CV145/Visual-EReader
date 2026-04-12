@@ -12,6 +12,7 @@ export interface BookMeta {
   addedAt: number;
   lastOpenedAt: number;
   lastCfi: string | null;
+  anchorGenre: string | null;
 }
 
 export interface Bookmark {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import { SettingsModal } from './SettingsModal';
-import { generateAmbientImage, analyzeMusicalSentiment, extractCharacterProfiles } from './gemini';
+import { generateAmbientImage, analyzeMusicalSentiment, extractCharacterProfiles, detectOverallGenre } from './gemini';
 import { LyriaEngine } from './lyriaEngine';
 import LibraryPage from './LibraryPage';
 import {
@@ -113,7 +113,26 @@ export default function App() {
     if (gallery.length > 0) setBgImage(gallery[0].base64);
 
     const data = await loadBookFile(book.id);
-    if (data) initEpub(data, book.id);
+    if (data) {
+      initEpub(data, book.id);
+      
+      // If genre isn't detected yet, perform an initial analysis for music anchoring
+      if (!book.anchorGenre) {
+        // We'll detect from the first ~2k characters to get a vibe
+        const ePub = (await import('epubjs')).default;
+        const tempBook = ePub(data as any);
+        await tempBook.ready;
+        const firstSection = tempBook.spine.get(0);
+        const doc = await firstSection.load(tempBook.load.bind(tempBook));
+        const text = doc.body.textContent?.slice(0, 3000) || "";
+        const detected = await detectOverallGenre(text);
+        
+        const updatedMeta = { ...book, anchorGenre: detected };
+        await addBookToLibrary(updatedMeta);
+        setActiveBook(updatedMeta);
+        tempBook.destroy();
+      }
+    }
   }, []);
 
   // ─── Mount Effect ─────────────────────────────────────────────────────────
@@ -204,8 +223,8 @@ export default function App() {
       const finalPayload = rawText.split(' ').slice(0, 1500).join(' ');
       if (finalPayload.length > 10) {
         setCurrentContextText(finalPayload);
-        if (isMusicPlaying && lyriaRef.current && (activeParagraphIndex % 10 === 0)) {
-          analyzeMusicalSentiment(finalPayload).then((sentiment) => {
+        if (isMusicPlaying && lyriaRef.current && (activeParagraphIndex % 10 === 0) && activeBook.anchorGenre) {
+          analyzeMusicalSentiment(finalPayload, activeBook.anchorGenre).then((sentiment) => {
             if (lyriaRef.current && isMusicPlaying) lyriaRef.current.setPrompts(sentiment);
           });
         }
