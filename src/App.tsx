@@ -663,15 +663,42 @@ export default function App() {
             </div>
 
             {!isVnTextHidden && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-40 bg-black/70 backdrop-blur-md border border-white/10 rounded-xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col transform transition-transform animate-in slide-in-from-bottom-5 h-[30vh]">
-                <div className="flex justify-between items-center mb-4 shrink-0">
-                  <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-primary/10 rounded-full border border-primary/20 shadow-inner">{chapterTitle}</span>
-                  <span className="text-white/60 text-xs font-mono tracking-widest bg-black/50 px-3 py-1 rounded-full border border-white/5">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-40 flex flex-col h-[30vh]">
+                <div className="flex justify-between items-center mb-3 shrink-0">
+                  <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-black/60 rounded-full border border-primary/20 shadow-inner backdrop-blur-sm">{chapterTitle}</span>
+                  <span className="text-white/70 text-xs font-mono tracking-widest bg-black/60 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
                 </div>
-                <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto pr-4" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
-                  <p className="text-gray-100 font-body leading-[1.8] tracking-wide p-1 transition-all duration-300"
-                    style={{ fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem` }}>
-                    {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? vnParagraphs[activeParagraphIndex].text : "Loading content..."}
+                <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto flex items-end" style={{ scrollbarWidth: 'none' }}>
+                  <p
+                    className="font-body leading-[2] tracking-wide transition-all duration-300 text-white"
+                    style={{
+                      fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem`,
+                      background: 'transparent',
+                      // Closed-caption style: tight black box clipped per-line
+                      display: 'inline',
+                      boxDecorationBreak: 'clone',
+                      WebkitBoxDecorationBreak: 'clone',
+                      backgroundColor: 'rgba(0,0,0,0)',
+                    }}
+                  >
+                    {(vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex]
+                      ? vnParagraphs[activeParagraphIndex].text
+                      : "Loading content..."
+                    ).split(' ').map((word, i) => (
+                      <span
+                        key={i}
+                        style={{
+                          backgroundColor: 'rgba(0,0,0,0.82)',
+                          boxDecorationBreak: 'clone',
+                          WebkitBoxDecorationBreak: 'clone',
+                          padding: '0.05em 0.3em',
+                          marginRight: '0.25em',
+                          display: 'inline',
+                          lineHeight: '2',
+                          borderRadius: '3px',
+                        }}
+                      >{word}</span>
+                    ))}
                   </p>
                 </div>
               </div>
