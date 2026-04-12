@@ -673,12 +673,6 @@ export default function App() {
                     className="font-body leading-[2] tracking-wide transition-all duration-300 text-white"
                     style={{
                       fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem`,
-                      background: 'transparent',
-                      // Closed-caption style: tight black box clipped per-line
-                      display: 'inline',
-                      boxDecorationBreak: 'clone',
-                      WebkitBoxDecorationBreak: 'clone',
-                      backgroundColor: 'rgba(0,0,0,0)',
                     }}
                   >
                     {(vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex]
@@ -689,8 +683,6 @@ export default function App() {
                         key={i}
                         style={{
                           backgroundColor: 'rgba(0,0,0,0.82)',
-                          boxDecorationBreak: 'clone',
-                          WebkitBoxDecorationBreak: 'clone',
                           padding: '0.05em 0.3em',
                           marginRight: '0.25em',
                           display: 'inline',
