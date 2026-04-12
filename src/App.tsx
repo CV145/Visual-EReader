@@ -226,7 +226,7 @@ export default function App() {
 
       const sliceAhead = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 20);
       const rawText = sliceAhead.map((p: any) => p.text).join(' ');
-      const finalPayload = rawText.split(' ').slice(0, 1500).join(' ');
+      const finalPayload = rawText.split(' ').slice(0, 5000).join(' ');
       if (finalPayload.length > 10) {
         setCurrentContextText(finalPayload);
         if (activeParagraphIndex % 3 === 0) {
@@ -545,9 +545,9 @@ export default function App() {
     
     setIsGeneratingPrompt(true);
     try {
-      // Grab the next 25 paragraphs for context as requested
+      // Grab the next 100 paragraphs for context as requested
       const contextForMusic = vnParagraphs
-        .slice(activeParagraphIndex, activeParagraphIndex + 25)
+        .slice(activeParagraphIndex, activeParagraphIndex + 100)
         .map(p => p.text)
         .join('\n');
         
@@ -993,7 +993,7 @@ export default function App() {
                       </div>
                     </div>
                     <p className="text-[11px] text-on-surface-variant mb-3 leading-relaxed">
-                      Analyze the next 25 paragraphs to generate a prompt, then copy it to create a high-fidelity track in Google AI Studio.
+                      Analyze the next 100 paragraphs to generate a prompt, then copy it to create a high-fidelity track in Google AI Studio.
                     </p>
                     <textarea
                       readOnly

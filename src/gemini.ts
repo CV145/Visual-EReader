@@ -84,16 +84,12 @@ export async function generateAmbientImage(promptContext: string, characterConte
 export async function analyzeMusicalSentiment(paragraphsText: string, anchorGenre: string): Promise<string> {
    const ai = getClient();
    
-   const systemPrompt = `You are a talented Cinematic Soundtrack Director. Your job is to analyze the following story excerpt and determine the PERFECT atmospheric background music for the scene.
+   const systemPrompt = `You are a Story Analyst. Your job is to analyze the following 100-paragraph story excerpt and summarize its core emotional tone and trajectory.
    The overall book genre is: "${anchorGenre}".
    
-   Output EXACTLY one single line of comma-separated musical keywords describing the mood, tempo, and instruments. 
-   STAY WITHIN THE STYLE OF THE OVERALL BOOK GENRE (${anchorGenre}).
+   Output a concise description of the emotions felt in the scene. DO NOT mention specific instruments, tempos, or musical terms. Just describe the emotional vibe and append the genre.
    
-   IMPORTANT:
-   - This score should adapt DYNAMICALLY to the scene's emotion.
-   - NO lyrics or vocals.
-   - Use textures and instrumentation appropriate for ${anchorGenre}.
+   Format example: "Tense, building dread, sudden realization, melancholic acceptance. Genre: ${anchorGenre}"
    
    Story Excerpt:
    "${paragraphsText}"`;
@@ -104,12 +100,12 @@ export async function analyzeMusicalSentiment(paragraphsText: string, anchorGenr
            contents: systemPrompt
        });
        
-       const text = response.text || `ambient ${anchorGenre} music`;
+       const text = response.text?.trim() || `Emotional tone for ${anchorGenre}`;
        console.log("Sentiment Generated (Anchored):", text);
        return text;
    } catch (error) {
-       console.error("Error analyzing musical sentiment:", error);
-       return `ambient ${anchorGenre} background music, calm`; // Safe fallback
+       console.error("Error analyzing emotional sentiment:", error);
+       return `Emotional tone for ${anchorGenre}`; // Safe fallback
    }
 }
 
