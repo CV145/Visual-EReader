@@ -72,15 +72,14 @@ export async function analyzeMusicalSentiment(paragraphsText: string, anchorGenr
    STAY WITHIN THE STYLE OF THE OVERALL BOOK GENRE (${anchorGenre}).
    
    IMPORTANT:
-   - This is for reading a book. The music must be low-intensity, ambient, and non-distracting.
+   - This score should adapt DYNAMICALLY to the scene's emotion.
    - NO lyrics or vocals.
-   - NO heavy or aggressive percussion.
-   - Modulate the mood (e.g., Tense, Melancholy, Heroic) using textures and instrumentation appropriate for ${anchorGenre}.
+   - Use textures and instrumentation appropriate for ${anchorGenre}.
    
    Examples of valid outputs for "${anchorGenre}":
-   - "Tense, low-intensity strings, atmospheric pads, slow heartbeat rhythm"
-   - "Melancholy, delicate piano melody, light woodwinds, airy textures"
-   - "Calm, slow-tempo drones, soft ethereal layers, soothing"
+   - "High-tension orchestral strings, driving percussion, fast tempo, cinematic"
+   - "Melancholy, delicate piano melody, light woodwinds, airy textures, slow"
+   - "Epic, rising brass, powerful drums, heroic theme"
    
    Story Excerpt:
    "${paragraphsText}"`;
