@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import { SettingsModal } from './SettingsModal';
-import { generateAmbientImage, analyzeMusicalSentiment, extractCharacterProfiles, detectOverallGenre } from './gemini';
+import { generateAmbientImage, analyzeMusicalSentiment, extractCharacterProfiles, detectOverallGenre, extractAmbientSounds } from './gemini';
 import { LyriaEngine } from './lyriaEngine';
+import { AmbientEngine } from './ambientEngine';
 import LibraryPage from './LibraryPage';
 import {
   BookMeta, Bookmark, GalleryImage, CharacterProfile,
@@ -33,6 +34,7 @@ export default function App() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [isTtsEnabled, setIsTtsEnabled] = useState(false);
+  const [isAmbientPlaying, setIsAmbientPlaying] = useState(false);
   const [ttsSpeed, setTtsSpeed] = useState(() => {
     const saved = localStorage.getItem('TTS_SPEED');
     return saved ? parseFloat(saved) : 1.0;
@@ -70,6 +72,7 @@ export default function App() {
   const bookRef = useRef<any>(null);
   const renditionRef = useRef<any>(null);
   const lyriaRef = useRef<LyriaEngine | null>(null);
+  const ambientRef = useRef<AmbientEngine | null>(null);
   const lastSpineHrefRef = useRef<string>('');
   const isMountedPhase = useRef(false);
   const isNavigatingBackward = useRef(false);
@@ -251,6 +254,12 @@ export default function App() {
         if (isMusicPlaying && lyriaRef.current && (activeParagraphIndex % 10 === 0) && activeBook.anchorGenre) {
           analyzeMusicalSentiment(finalPayload, activeBook.anchorGenre).then((sentiment) => {
             if (lyriaRef.current && isMusicPlaying) lyriaRef.current.setPrompts(sentiment);
+          });
+        }
+        // Update ambient layer every 10 paragraphs
+        if (isAmbientPlaying && ambientRef.current && (activeParagraphIndex % 10 === 0)) {
+          extractAmbientSounds(finalPayload).then((sounds) => {
+            if (ambientRef.current && isAmbientPlaying) ambientRef.current.setAmbience(sounds);
           });
         }
       }
@@ -471,6 +480,37 @@ export default function App() {
     if (isCurrentPageBookmarked) await removeBookmark(currentCfi); else await addBookmark();
   };
 
+  // ─── Music ────────────────────────────────────────────────────────────────
+  const toggleMusic = async () => {
+    try {
+      if (!lyriaRef.current) {
+        lyriaRef.current = new LyriaEngine();
+        lyriaRef.current.attachCallback((p) => setIsMusicPlaying(p));
+      }
+      const payload = currentContextText || bookTitle || "Calm ambient background";
+      const nowPlaying = await lyriaRef.current.togglePlay(payload);
+      setIsMusicPlaying(nowPlaying);
+    } catch(e: any) {
+      alert("Audio Initialization Failed: " + (e.message || "Cannot connect to Live Music socket."));
+    }
+  };
+
+  // ─── Ambient ──────────────────────────────────────────────────────────────────
+  const toggleAmbient = async () => {
+    try {
+      if (!ambientRef.current) {
+        ambientRef.current = new AmbientEngine();
+        ambientRef.current.attachCallback((p) => setIsAmbientPlaying(p));
+      }
+      const payload = currentContextText || "gentle outdoor atmosphere";
+      const sounds = await extractAmbientSounds(payload);
+      const nowPlaying = await ambientRef.current.togglePlay(sounds);
+      setIsAmbientPlaying(nowPlaying);
+    } catch(e: any) {
+      alert("Ambient Engine Failed: " + (e.message || "Cannot connect to Lyria socket."));
+    }
+  };
+
   // ─── Image Generation ─────────────────────────────────────────────────────
   const handleGenerate = async () => {
     if (!currentContextText || !activeBook) { alert("Please read a few pages first!"); return; }
@@ -503,21 +543,6 @@ export default function App() {
       alert("Failed to generate image. " + e.message);
     } finally {
       setIsLoadingImage(false);
-    }
-  };
-
-  // ─── Music ────────────────────────────────────────────────────────────────
-  const toggleMusic = async () => {
-    try {
-      if (!lyriaRef.current) {
-        lyriaRef.current = new LyriaEngine();
-        lyriaRef.current.attachCallback((p) => setIsMusicPlaying(p));
-      }
-      const payload = currentContextText || bookTitle || "Calm ambient background";
-      const nowPlaying = await lyriaRef.current.togglePlay(payload);
-      setIsMusicPlaying(nowPlaying);
-    } catch(e: any) {
-      alert("Audio Initialization Failed: " + (e.message || "Cannot connect to Live Music socket."));
     }
   };
 
@@ -559,8 +584,10 @@ export default function App() {
               if (bookRef.current) { bookRef.current.destroy(); bookRef.current = null; }
               lyriaRef.current?.stop?.();
               lyriaRef.current = null;
+              ambientRef.current?.stop?.();
+              ambientRef.current = null;
               window.speechSynthesis.cancel();
-              setIsMusicPlaying(false); setIsTtsEnabled(false);
+              setIsMusicPlaying(false); setIsTtsEnabled(false); setIsAmbientPlaying(false);
               setActiveBook(null); setBookLoaded(false); setVnParagraphs([]);
             }}
             title="Back to Library"
@@ -584,7 +611,15 @@ export default function App() {
             <span className="material-symbols-outlined text-sm">{isMusicPlaying ? 'stop_circle' : 'play_circle'}</span>
             <span className="text-xs font-bold uppercase tracking-wider font-label whitespace-nowrap hidden sm:inline">{isMusicPlaying ? 'Stop Audio' : 'Start Audio'}</span>
           </button>
-          {/* TTS Toggle */}
+          {/* Ambient Sounds Toggle */}
+          <button
+            onClick={toggleAmbient}
+            title={isAmbientPlaying ? "Stop Ambient Sounds" : "Start Ambient Sounds"}
+            className={`transition-colors duration-300 p-2 rounded-lg cursor-pointer border ${isAmbientPlaying ? 'text-teal-400 bg-surface-container border-teal-500/30 shadow-inner' : 'text-primary hover:bg-surface-container-high border-surface-container-highest'}`}
+          >
+            <span className="material-symbols-outlined text-sm">speaker_wave</span>
+          </button>
+
           <div className="flex items-center gap-1 bg-surface-container rounded-lg px-1.5 py-1 border border-surface-container-highest">
             <button
               onClick={toggleTts}

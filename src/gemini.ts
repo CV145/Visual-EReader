@@ -142,3 +142,31 @@ export async function extractCharacterProfiles(paragraphsText: string): Promise<
        return [];
    }
 }
+
+export async function extractAmbientSounds(paragraphsText: string): Promise<string> {
+  const ai = getClient();
+  const prompt = `You are a cinematic Sound Designer. Analyze the following story excerpt and describe ONLY the environmental ambient sounds present in the scene.
+  Output EXACTLY one short line (5-10 words max) of comma-separated natural sound keywords.
+  Focus ONLY on non-musical, environmental audio: weather, nature, urban sounds, crowds, water, fire, etc.
+  Do NOT include any musical terms, instruments, or emotions. Do NOT output conversational text.
+  
+  Examples of valid outputs:
+  - "wind howling, distant thunder, rustling leaves"
+  - "crackling fireplace, light rain on windows"
+  - "busy tavern crowd murmur, clanking mugs"
+  - "ocean waves, seagulls, breeze"
+  - "city traffic, distant sirens, footsteps on pavement"
+  
+  If the scene is indoors and quiet, output: "gentle indoor ambience, subtle room tone"
+  
+  Story Excerpt:
+  "${paragraphsText.slice(0, 1500)}"`;
+
+  try {
+    const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+    return response.text?.trim() || "gentle ambient atmosphere";
+  } catch (err) {
+    console.error("Error extracting ambient sounds:", err);
+    return "gentle ambient atmosphere";
+  }
+}
