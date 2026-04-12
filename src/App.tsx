@@ -668,29 +668,15 @@ export default function App() {
                   <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-black/60 rounded-full border border-primary/20 shadow-inner backdrop-blur-sm">{chapterTitle}</span>
                   <span className="text-white/70 text-xs font-mono tracking-widest bg-black/60 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
                 </div>
-                <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
+                <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto px-2" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
                   <p
-                    className="font-body leading-[2] tracking-wide transition-all duration-300 text-white"
+                    className="font-body leading-[1.8] tracking-wide transition-all duration-300 text-gray-100 rounded-lg p-4"
                     style={{
                       fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem`,
+                      backgroundColor: 'rgba(0,0,0,0.75)',
                     }}
                   >
-                    {(vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex]
-                      ? vnParagraphs[activeParagraphIndex].text
-                      : "Loading content..."
-                    ).split(' ').map((word, i) => (
-                      <span
-                        key={i}
-                        style={{
-                          backgroundColor: 'rgba(0,0,0,0.82)',
-                          padding: '0.05em 0.3em',
-                          marginRight: '0.25em',
-                          display: 'inline',
-                          lineHeight: '2',
-                          borderRadius: '3px',
-                        }}
-                      >{word}</span>
-                    ))}
+                    {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? vnParagraphs[activeParagraphIndex].text : "Loading content..."}
                   </p>
                 </div>
               </div>
