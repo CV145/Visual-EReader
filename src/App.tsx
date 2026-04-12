@@ -6,7 +6,7 @@ import { LyriaEngine } from './lyriaEngine';
 import LibraryPage from './LibraryPage';
 import {
   BookMeta, Bookmark, GalleryImage, CharacterProfile,
-  loadBookFile, addBookToLibrary,
+  getLibrary, loadBookFile, addBookToLibrary,
   loadLocation, saveLocation,
   loadBookmarks, saveBookmarks,
   loadGallery, saveGallery,
