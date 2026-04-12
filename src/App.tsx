@@ -724,33 +724,6 @@ export default function App() {
                   <span className="text-white/70 text-xs font-mono tracking-widest bg-black/60 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
                 </div>
 
-                {/* Portrait Overlay — characters present in the current paragraph */}
-                {sceneCharacters.length > 0 && (
-                  <div className="flex gap-3 mb-3 shrink-0 flex-wrap">
-                    {sceneCharacters.map(name => {
-                      const profile = characters.find(c => c.name === name);
-                      return (
-                        <div key={name} className="flex flex-col items-center gap-1 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                          <div
-                            className="w-14 h-14 rounded-full overflow-hidden border-2 border-primary/60 shadow-lg bg-black/60 backdrop-blur-sm"
-                            title={profile?.description || name}
-                          >
-                            {profile?.portrait ? (
-                              <img src={profile.portrait} alt={name} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-primary/20">
-                                <span className="text-lg font-bold text-primary">{name.charAt(0).toUpperCase()}</span>
-                              </div>
-                            )}
-                          </div>
-                          <span className="text-[10px] font-bold text-white/80 font-label uppercase tracking-wide bg-black/50 px-1.5 py-0.5 rounded-full">
-                            {name.split(' ')[0]}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
 
                 <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto px-2" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
                   <p
