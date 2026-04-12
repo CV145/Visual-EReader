@@ -73,6 +73,7 @@ export default function App() {
   const pendingTocHref = useRef<string | null>(null);
   const pendingCfi = useRef<string | null>(null);
   const pendingBookmarkIndex = useRef<number | null>(null);
+  const hasAutoResumed = useRef(false);
 
   // ─── Settings Load ────────────────────────────────────────────────────────
   const loadSettings = () => {
@@ -118,24 +119,44 @@ export default function App() {
       
       // If genre isn't detected yet, perform an initial analysis for music anchoring
       if (!book.anchorGenre) {
-        // We'll detect from the first ~2k characters to get a vibe
-        const ePub = (await import('epubjs')).default;
-        const tempBook = ePub(data as any);
-        await tempBook.ready;
-        const firstSection = tempBook.spine.get(0);
-        const doc = await firstSection.load(tempBook.load.bind(tempBook));
-        const text = doc.body.textContent?.slice(0, 3000) || "";
-        const detected = await detectOverallGenre(text);
-        
-        const updatedMeta = { ...book, anchorGenre: detected };
-        await addBookToLibrary(updatedMeta);
-        setActiveBook(updatedMeta);
-        tempBook.destroy();
+        try {
+          const ePub = (await import('epubjs')).default;
+          const tempBook = ePub(data as any);
+          await tempBook.ready;
+          const firstSection = tempBook.spine.get(0);
+          if (firstSection) {
+            const doc = await firstSection.load(tempBook.load.bind(tempBook));
+            const text = doc?.body?.textContent?.slice(0, 3000) || "";
+            if (text.length > 20) {
+              const detected = await detectOverallGenre(text);
+              const updatedMeta = { ...book, anchorGenre: detected };
+              await addBookToLibrary(updatedMeta);
+              setActiveBook(updatedMeta);
+            }
+          }
+          tempBook.destroy();
+        } catch (err) {
+          console.warn("Genre detection failed, will retry next open:", err);
+        }
       }
     }
   }, []);
 
-  // ─── Mount Effect ─────────────────────────────────────────────────────────
+  // ─── Auto-Resume (runs exactly once on mount) ─────────────────────────────
+  useEffect(() => {
+    if (hasAutoResumed.current) return;
+    hasAutoResumed.current = true;
+    getLibrary().then(lib => {
+      if (lib.length > 0) {
+        const lastRead = [...lib].sort((a, b) => (b.lastOpenedAt || 0) - (a.lastOpenedAt || 0))[0];
+        if (lastRead && lastRead.lastOpenedAt > 0) {
+           openBook(lastRead);
+        }
+      }
+    });
+  }, []);
+
+  // ─── Mount Effect (keyboard + gamepad) ────────────────────────────────────
   useEffect(() => {
     isMountedPhase.current = true;
     loadSettings();
@@ -166,22 +187,12 @@ export default function App() {
     };
     animationFrame = requestAnimationFrame(pollGamepad);
 
-    // Auto-Resume: Detect last opened book on startup
-    getLibrary().then(lib => {
-      if (lib.length > 0) {
-        const lastRead = [...lib].sort((a, b) => (b.lastOpenedAt || 0) - (a.lastOpenedAt || 0))[0];
-        if (lastRead && lastRead.lastOpenedAt > 0) {
-           openBook(lastRead);
-        }
-      }
-    });
-
     return () => {
       isMountedPhase.current = false;
       window.removeEventListener('keydown', handleKeyDown);
       cancelAnimationFrame(animationFrame);
     };
-  }, [vnParagraphs, activeParagraphIndex, openBook]);
+  }, [vnParagraphs, activeParagraphIndex]);
 
   // ─── VN Navigation ────────────────────────────────────────────────────────
   const advanceVnDialogue = useCallback(() => {
