@@ -166,12 +166,22 @@ export default function App() {
     };
     animationFrame = requestAnimationFrame(pollGamepad);
 
+    // Auto-Resume: Detect last opened book on startup
+    getLibrary().then(lib => {
+      if (lib.length > 0) {
+        const lastRead = [...lib].sort((a, b) => (b.lastOpenedAt || 0) - (a.lastOpenedAt || 0))[0];
+        if (lastRead && lastRead.lastOpenedAt > 0) {
+           openBook(lastRead);
+        }
+      }
+    });
+
     return () => {
       isMountedPhase.current = false;
       window.removeEventListener('keydown', handleKeyDown);
       cancelAnimationFrame(animationFrame);
     };
-  }, [vnParagraphs, activeParagraphIndex]);
+  }, [vnParagraphs, activeParagraphIndex, openBook]);
 
   // ─── VN Navigation ────────────────────────────────────────────────────────
   const advanceVnDialogue = useCallback(() => {
