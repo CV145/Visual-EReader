@@ -36,6 +36,7 @@ export default function App() {
   const [isTtsEnabled, setIsTtsEnabled] = useState(false);
   const [currentAudioPrompt, setCurrentAudioPrompt] = useState('');
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+  const [showSafetyPopup, setShowSafetyPopup] = useState(false);
   const [sceneCharacters, setSceneCharacters] = useState<string[]>([]);
   //const [isGeneratingPortraits, setIsGeneratingPortraits] = useState(false);
   const [ttsSpeed, setTtsSpeed] = useState(() => {
@@ -488,7 +489,7 @@ export default function App() {
     if (!activeBook) { alert("Please open a book first!"); return; }
     
     // Pass the next 25 paragraphs from the current one as context
-    const contextForImage = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 25).map(p => p.text).join('\n');
+    const contextForImage = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 50).map(p => p.text).join('\n');
     if (!contextForImage) { alert("Please read a few pages first!"); return; }
 
     setIsLoadingImage(true);
@@ -541,7 +542,11 @@ export default function App() {
         });
       }
     } catch (e: any) {
-      alert("Failed to generate image. " + e.message);
+      if (e.message === "SAFETY_BLOCKED") {
+        setShowSafetyPopup(true);
+      } else {
+        alert("Failed to generate image. " + e.message);
+      }
     } finally {
       setIsLoadingImage(false);
     }
@@ -1037,6 +1042,26 @@ export default function App() {
           <button className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center bg-surface/50 hover:bg-surface/80 backdrop-blur-md rounded-full text-on-surface transition-all cursor-pointer" onClick={() => setIsExpanded(false)}>
             <span className="material-symbols-outlined">close</span>
           </button>
+        </div>
+      )}
+      {/* Safety Restriction Popup */}
+      {showSafetyPopup && (
+        <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-surface-container-high border border-red-500/30 rounded-2xl p-6 w-full max-w-sm shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-300">
+            <div className="flex items-center gap-3 text-red-400">
+              <span className="material-symbols-outlined text-3xl">gpp_maybe</span>
+              <h3 className="text-xl font-headline font-bold">Safety Restriction</h3>
+            </div>
+            <p className="text-sm font-body text-on-surface-variant leading-relaxed">
+              Gemini refused to generate an image for this scene because the context triggered the API's safety filters (e.g., violence, explicit content, or restricted topics).
+            </p>
+            <button
+              className="w-full bg-surface-variant hover:bg-red-500/20 text-on-surface hover:text-red-400 font-label font-bold uppercase tracking-wider py-3 rounded-lg transition-colors shadow-md mt-2 cursor-pointer border border-transparent hover:border-red-500/50"
+              onClick={() => setShowSafetyPopup(false)}
+            >
+              Dismiss
+            </button>
+          </div>
         </div>
       )}
     </>

@@ -20,10 +20,10 @@ export async function generateAmbientImage(promptContext: string, characterConte
     : "Do NOT include any characters, people, or figures. Focus ONLY on the environment, landscape, architecture, and atmospheric setting.";
 
   let styleDirective = "Generate a 1st person Point of View (POV) cinematic masterpiece, photorealistic 8k resolution image. The viewpoint should be from the absolute perspective of the main character looking out at the world dynamically in front of them, like real life or a highly realistic movie scene.";
-  if (stylePref === 'visual-novel') {
-      styleDirective = "Generate an anime-style 1st person Point of View (POV) visual novel background representing the environment described in this story excerpt. High quality 2D anime art style.";
+  if (stylePref === 'manga') {
+      styleDirective = "Generate an anime-style black and white manga page full of panels representing the story excerpt. High quality 2D hand drawn manga art style.";
   } else if (stylePref === 'tabletop') {
-      styleDirective = "Generate a top-down tabletop miniature diorama style image representing the scene. The viewpoint should be looking down at a tabletop map. Any characters must be depicted as tiny plastic or resin minifigures with a small floating nameplate or text base showing their name next to them.";
+      styleDirective = "Generate a top-down 2D tabletop map view of the scene. The viewpoint should be looking down at a tabletop map. Any characters must be depicted as tiny plastic or resin minifigures with a small floating nameplate or text base showing their name next to them.";
   } else if (stylePref === 'comic-book') {
       styleDirective = "Generate a graphic novel page showing several different comic book panels/cells representing the sequence of events and environment described in this story excerpt. Comic book art style.";
   } else if (stylePref === 'character-portraits') {
@@ -66,6 +66,13 @@ export async function generateAmbientImage(promptContext: string, characterConte
     });
 
     const firstCandidate = imageResponse.candidates?.[0];
+
+    // Explicitly check for API safety blocks
+    if (imageResponse.promptFeedback?.blockReason === 'SAFETY' || firstCandidate?.finishReason === 'SAFETY') {
+        throw new Error("SAFETY_BLOCKED");
+    }
+
+
     const imagePart = firstCandidate?.content?.parts?.[0];
     const base64Image = imagePart?.inlineData?.data;
     
@@ -77,6 +84,9 @@ export async function generateAmbientImage(promptContext: string, characterConte
     return `data:image/jpeg;base64,${base64Image}`;
   } catch (error) {
     console.error("Error generating image:", error);
+    if (error.message?.includes("SAFETY_BLOCKED") || error.message?.toLowerCase().includes("safety")) {
+        throw new Error("SAFETY_BLOCKED");
+    }
     throw error;
   }
 }
