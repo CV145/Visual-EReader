@@ -54,7 +54,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
             className="w-full bg-surface-container-highest border border-outline-variant text-on-surface p-3 rounded-lg focus:outline-none focus:border-primary transition-colors appearance-none cursor-pointer"
           >
             <option value="cinematic">Default Cinematic</option>
-            <option value="visual-novel">1st Person POV Visual Novel</option>
+            <option value="manga">Manga</option>
             <option value="tabletop">Topdown Tabletop Minifigures</option>
             <option value="comic-book">Graphic Novel / Comic Cells</option>
             <option value="character-portraits">Character Portraits</option>
