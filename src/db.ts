@@ -128,8 +128,13 @@ export const upsertCharacter = async (bookId: string, incoming: CharacterProfile
   if (!incoming.name.trim() || !incoming.description.trim()) {
     return loadCharacters(bookId);
   }
+
+  // FORCE FIRST NAME ONLY: Split the name by spaces and take the first item
+  incoming.name = incoming.name.trim().split(/\s+/)[0];
+
   const existing = await loadCharacters(bookId);
   const idx = existing.findIndex(c => c.name.toLowerCase() === incoming.name.toLowerCase());
+  
   if (idx >= 0) {
     // ACCUMULATE: append new details rather than replacing — prevents regressions from sparse excerpts
     const old = existing[idx];

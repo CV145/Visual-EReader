@@ -149,14 +149,23 @@ export interface ExtractedCharacter {
 
 export async function extractCharacterProfiles(paragraphsText: string): Promise<ExtractedCharacter[]> {
    const ai = getClient();
-   const prompt = `You are a meticulous Character Designer reading a story. Extract all NAMED characters and describe their physical appearance only.
+   // Updated prompt to explicitly request FIRST NAME ONLY
+   const prompt = `You are a meticulous Character Designer reading a story. Extract all NAMED characters (use ONLY their first name, no last names allowed) and describe their physical appearance only.
    Output ONLY a valid JSON array with objects having "name" and "description" fields. "description" = physical appearance ONLY (hair, eyes, skin, build, clothing). If none found, output []. No text outside the JSON array.
-   Story Excerpt: "${paragraphsText.slice(0, 15000)}"`; // Increased slice to handle 25 paragraphs
+   Story Excerpt: "${paragraphsText.slice(0, 15000)}"`;
+   
    try {
        const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
        const raw = (response.text || '[]').trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-       const parsed = JSON.parse(raw);
-       if (Array.isArray(parsed)) return parsed as ExtractedCharacter[];
+       let parsed = JSON.parse(raw);
+       
+       if (Array.isArray(parsed)) {
+           // Programmatic failsafe: forcefully strip anything after the first space
+           return parsed.map(c => ({
+               name: c.name ? c.name.trim().split(/\s+/)[0] : '',
+               description: c.description
+           })) as ExtractedCharacter[];
+       }
        return [];
    } catch (error) {
        console.error("Error extracting character profiles:", error);
