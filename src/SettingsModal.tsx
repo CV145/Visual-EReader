@@ -57,6 +57,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
             <option value="manga">Manga</option>
             <option value="tabletop">Topdown Tabletop Minifigures</option>
             <option value="comic-book">Graphic Novel / Comic Cells</option>
+            <option value="pixel-art">2D Pixel Art</option>
             <option value="character-portraits">Character Portraits</option>
           </select>
         </div>

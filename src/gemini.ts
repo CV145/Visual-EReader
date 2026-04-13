@@ -26,6 +26,8 @@ export async function generateAmbientImage(promptContext: string, characterConte
       styleDirective = "Generate a top-down 2D tabletop map view of the scene. The viewpoint should be looking down at a tabletop map. Any characters must be depicted as tiny plastic or resin minifigures with a small floating nameplate or text base showing their name next to them.";
   } else if (stylePref === 'comic-book') {
       styleDirective = "Generate a graphic novel page showing several different comic book panels/cells representing the sequence of events and environment described in this story excerpt. Comic book art style.";
+  } else if (stylePref === 'pixel-art') {
+      styleDirective = "Generate a 2D pixel art image of the scene. The viewpoint should be 2D side-scroller perspective. There can be multiple 'floors' depicting different scenes";
   } else if (stylePref === 'character-portraits') {
       styleDirective = "Generate a character concept art sheet featuring character portraits for the characters present in the excerpt. Each portrait MUST include a fully rendered, contextual background behind the character that fits the scene's environment or their persona. For each character depicted, clearly place the name of the character next to their portrait. Use a cohesive, high-quality character design art style.";
   }
