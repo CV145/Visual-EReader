@@ -3,6 +3,7 @@ import ePub from 'epubjs';
 import { SettingsModal } from './SettingsModal';
 import { generateAmbientImage, analyzeMusicalSentiment, extractCharacterProfiles, detectOverallGenre } from './gemini';
 import { LyriaEngine } from './lyriaEngine';
+import {initLocalLLM, summarizeTextLocally} from './lyriaEngine';
 import LibraryPage from './LibraryPage';
 import {
   BookMeta, Bookmark, GalleryImage, CharacterProfile,
@@ -17,6 +18,56 @@ interface VnParagraph {
   text: string;
   cfi: string;
   html?: string;
+}
+
+export function SummarizerMVP({ paragraphs }: { paragraphs: string[] }) {
+  const [loadingMsg, setLoadingMsg] = useState("");
+  const [summary, setSummary] = useState("");
+  const [isSummarizing, setIsSummarizing] = useState(false);
+
+  const handleSummarize = async () => {
+    setIsSummarizing(true);
+    try {
+      setLoadingMsg("Loading AI Engine...");
+      await initLocalLLM((report) => {
+        setLoadingMsg(`Loading Model: ${report.text}`);
+      });
+
+      const textToSummarize = paragraphs.slice(0, 20).join("\n\n");
+      
+      setLoadingMsg("Summarizing...");
+      const result = await summarizeTextLocally(textToSummarize);
+      setSummary(result);
+      
+    } catch (error) {
+      console.error(error);
+      setSummary("Error generating summary. Check console.");
+    } finally {
+      setLoadingMsg("");
+      setIsSummarizing(false);
+    }
+  };
+
+  return (
+    <div className="p-4 bg-gray-800/90 backdrop-blur-md text-white rounded-lg border border-outline-variant/30 shadow-2xl">
+      <button 
+        onClick={handleSummarize} 
+        disabled={isSummarizing || paragraphs.length === 0}
+        className="w-full bg-primary/20 hover:bg-primary text-primary hover:text-on-primary border border-primary/50 px-4 py-2 rounded transition-colors disabled:opacity-50 font-bold uppercase tracking-wider text-sm cursor-pointer"
+      >
+        {isSummarizing ? "Processing..." : "Summarize Next 20 Paras (Local)"}
+      </button>
+
+      {loadingMsg && <p className="mt-2 text-xs text-yellow-400 font-mono">{loadingMsg}</p>}
+      
+      {summary && (
+        <div className="mt-4 p-3 bg-surface-container-highest rounded border border-outline-variant/20 max-h-60 overflow-y-auto">
+          <h3 className="font-bold text-sm uppercase tracking-widest mb-2 text-primary">Local Summary</h3>
+          <p className="whitespace-pre-wrap text-sm font-body leading-relaxed">{summary}</p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function App() {
@@ -728,6 +779,10 @@ export default function App() {
 
         {bookLoaded ? (
           <>
+            <div className="absolute top-4 left-6 z-50 w-80 pointer-events-auto">
+              <SummarizerMVP paragraphs={vnParagraphs.slice(activeParagraphIndex).map(p => p.text)} />
+            </div>
+            
             <div className="absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
               <button onClick={handleGenerate} disabled={isLoadingImage}
                 className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 disabled:opacity-60 disabled:cursor-not-allowed"

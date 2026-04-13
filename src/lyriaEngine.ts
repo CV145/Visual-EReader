@@ -1,4 +1,8 @@
 import { GoogleGenAI } from '@google/genai';
+import { WebWorkerMLCEngine } from "@mlc-ai/web-llm"
+
+let engine: WebWorkerMLCEngine | null = null;
+
 
 export class LyriaEngine {
     private client: any;
@@ -183,4 +187,35 @@ export class LyriaEngine {
             console.error("Frame decoding failure:", err);
         }
     }
+}
+
+export async function initLocalLLM(initProgressCallback: (report: any) => void) {
+  if (!engine) {
+    // Point to the worker file you just created
+    const worker = new Worker(new URL('./llm.worker.ts', import.meta.url), { type: 'module' });
+    
+    engine = new WebWorkerMLCEngine(worker);
+    
+    // Set a callback to track the downloading of model weights
+    engine.setInitProgressCallback(initProgressCallback);
+    
+    // Load Gemma 2B (4-bit quantized)
+    await engine.reload("gemma-2b-it-q4f32_1-MLC");
+  }
+  return engine;
+}
+
+export async function summarizeTextLocally(textChunk: string): Promise<string> {
+  if (!engine) {
+    throw new Error("Local LLM engine not initialized. Call initLocalLLM first.");
+  }
+
+  const prompt = `Summarize the following text concisely. Capture the main plot points, character actions, and any crucial details.\n\nText to summarize:\n${textChunk}`;
+
+  const completion = await engine.chat.completions.create({
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.3, // Low temperature for factual summarization
+  });
+
+  return completion.choices[0].message.content || "Could not generate summary.";
 }
