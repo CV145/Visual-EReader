@@ -23,7 +23,7 @@ export async function generateAmbientImage(promptContext: string, characterConte
   if (stylePref === 'manga') {
       styleDirective = "Generate an anime-style black and white manga page full of panels representing the story excerpt. High quality 2D hand drawn manga art style.";
   } else if (stylePref === 'tabletop') {
-      styleDirective = "Generate a top-down 2D tabletop map view of the scene. The viewpoint should be looking down at a tabletop map. Any characters must be depicted as tiny plastic or resin minifigures with a small floating nameplate or text base showing their name next to them.";
+      styleDirective = "Generate a top-down 2D tabletop map view of the scene. The viewpoint should be looking down at a tabletop map. Any characters must be depicted as tiny tokens with a small floating nameplate or text base showing their name next to them.";
   } else if (stylePref === 'comic-book') {
       styleDirective = "Generate a graphic novel page showing several different comic book panels/cells representing the sequence of events and environment described in this story excerpt. Comic book art style.";
   } else if (stylePref === 'pixel-art') {
