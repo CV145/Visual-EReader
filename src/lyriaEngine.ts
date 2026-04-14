@@ -201,6 +201,7 @@ export async function initLocalLLM(initProgressCallback: (report: any) => void) 
     
     // Load Gemma 2B (4-bit quantized)
     await engine.reload("gemma-2b-it-q4f32_1-MLC");
+    //await engine.reload("gemma-4-e2b-it-q4f16_1-MLC")
 
     localStorage.setItem('LOCAL_LLM_CACHED', 'true');
   }

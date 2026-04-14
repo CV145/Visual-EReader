@@ -63,6 +63,7 @@ export const deleteBookFromLibrary = async (bookId: string): Promise<void> => {
   await localforage.removeItem(`gallery_${bookId}`);
   await localforage.removeItem(`characters_${bookId}`);
   await localforage.removeItem(`location_${bookId}`);
+  await localforage.removeItem(`summary_${bookId}`);
 };
 
 // ─── Book File ───────────────────────────────────────────────────────────────
@@ -107,6 +108,16 @@ export const loadGallery = async (bookId: string): Promise<GalleryImage[]> => {
 
 export const saveGallery = async (bookId: string, imgs: GalleryImage[]) => {
   await localforage.setItem(`gallery_${bookId}`, imgs);
+};
+
+// ─── Summaries ────────────────────────────────────────────────────────────────
+
+export const loadSummary = async (bookId: string): Promise<string | null> => {
+  return localforage.getItem<string>(`summary_${bookId}`);
+};
+
+export const saveSummary = async (bookId: string, summary: string) => {
+  await localforage.setItem(`summary_${bookId}`, summary);
 };
 
 // ─── Character Profiles ───────────────────────────────────────────────────────

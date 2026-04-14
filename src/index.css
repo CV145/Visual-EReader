@@ -120,3 +120,47 @@ html, body {
     padding: 0 !important;
     font-size: inherit !important;
 }
+/* Mobile-specific adjustments */
+@media (max-width: 768px) {
+  .vibe-bg {
+    filter: blur(40px) saturate(0.7) brightness(0.25);
+  }
+
+  header {
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+    height: 3.5rem !important;
+  }
+
+  footer {
+    height: 4rem !important;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+
+  .vn-text-box {
+    width: 96% !important;
+    bottom: 4.5rem !important;
+    height: auto !important;
+    max-height: 40vh !important;
+  }
+}
+
+/* Transitions for toggling UI */
+.fade-enter {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.fade-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms, transform 300ms;
+}
+.fade-exit {
+  opacity: 1;
+}
+.fade-exit-active {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 300ms, transform 300ms;
+}

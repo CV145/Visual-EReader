@@ -16,6 +16,7 @@ import {
   loadBookmarks, saveBookmarks,
   loadGallery, saveGallery,
   loadCharacters, saveCharacters, upsertCharacter,
+  loadSummary, saveSummary
 } from './db';
 
 interface VnParagraph {
@@ -24,9 +25,8 @@ interface VnParagraph {
   html?: string;
 }
 
-export function SummarizerMVP({ paragraphs }: { paragraphs: string[] }) {
+export function SummarizerMVP({ paragraphs, existingSummary, onSummaryGenerated, bookId }: { paragraphs: string[], existingSummary: string, onSummaryGenerated: (s: string) => void, bookId?: string }) {
   const [loadingMsg, setLoadingMsg] = useState("");
-  const [summary, setSummary] = useState("");
   const [isSummarizing, setIsSummarizing] = useState(false);
 
   const handleSummarize = async () => {
@@ -41,11 +41,12 @@ export function SummarizerMVP({ paragraphs }: { paragraphs: string[] }) {
       
       setLoadingMsg("Summarizing...");
       const result = await summarizeTextLocally(textToSummarize);
-      setSummary(result);
+      onSummaryGenerated(result);
+      if (bookId) await saveSummary(bookId, result);
       
     } catch (error) {
       console.error(error);
-      setSummary("Error generating summary. Check console.");
+      onSummaryGenerated("Error generating summary. Check console.");
     } finally {
       setLoadingMsg("");
       setIsSummarizing(false);
@@ -64,10 +65,10 @@ export function SummarizerMVP({ paragraphs }: { paragraphs: string[] }) {
 
       {loadingMsg && <p className="mt-2 text-xs text-yellow-400 font-mono">{loadingMsg}</p>}
       
-      {summary && (
+      {existingSummary && (
         <div className="mt-4 p-3 bg-surface-container-highest rounded border border-outline-variant/20 max-h-60 overflow-y-auto">
           <h3 className="font-bold text-sm uppercase tracking-widest mb-2 text-primary">Local Summary</h3>
-          <p className="whitespace-pre-wrap text-sm font-body leading-relaxed">{summary}</p>
+          <p className="whitespace-pre-wrap text-sm font-body leading-relaxed">{existingSummary}</p>
         </div>
       )}
     </div>
@@ -147,6 +148,9 @@ export default function App() {
   const pendingBookmarkIndex = useRef<number | null>(null);
   const hasAutoResumed = useRef(false);
 
+  const [persistentSummary, setPersistentSummary] = useState("");
+  const [isSceneControlsVisible, setIsSceneControlsVisible] = useState(true);
+
   // ─── Settings Load ────────────────────────────────────────────────────────
   const loadSettings = () => {
     setIsStretchImage(localStorage.getItem('STRETCH_IMAGE') === 'true');
@@ -184,14 +188,16 @@ export default function App() {
     setBookTitle(book.title);
 
     // Load per-book data
-    const [bms, gallery, chars] = await Promise.all([
+    const [bms, gallery, chars, summary] = await Promise.all([
       loadBookmarks(book.id),
       loadGallery(book.id),
       loadCharacters(book.id),
+      loadSummary(book.id),
     ]);
     setBookmarks(bms);
     setGallery(gallery);
     setCharacters(chars);
+    setPersistentSummary(summary || "");
     if (gallery.length > 0) setBgImage(gallery[0].base64);
 
     const data = await loadBookFile(book.id);
@@ -826,15 +832,19 @@ export default function App() {
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
         <div className="absolute inset-0 p-8 opacity-0 pointer-events-none -z-10" ref={viewerRef}></div>
 
+        <div className="absolute inset-0 z-10 flex">
+          <div className="w-[20%] h-full cursor-pointer flex items-center justify-start px-4 group" onClick={(e) => { e.stopPropagation(); prevPage(); }}>
+            <span className="material-symbols-outlined text-white/10 group-hover:text-white/40 transition-colors text-4xl select-none">chevron_left</span>
+          </div>
+          <div className="flex-1 h-full cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsSceneControlsVisible(!isSceneControlsVisible); }}></div>
+          <div className="w-[20%] h-full cursor-pointer flex items-center justify-end px-4 group" onClick={(e) => { e.stopPropagation(); nextPage(); }}>
+            <span className="material-symbols-outlined text-white/10 group-hover:text-white/40 transition-colors text-4xl select-none">chevron_right</span>
+          </div>
+        </div>
+
         {bookLoaded ? (
           <>
-            {isSummaryVisible && (
-              <div className="absolute top-4 left-6 z-50 w-80 pointer-events-auto">
-                <SummarizerMVP paragraphs={vnParagraphs.slice(Math.max(0, activeParagraphIndex - 25), activeParagraphIndex).map(p => p.text)} />
-              </div>
-            )}
-            
-            <div className="absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
+            <div className={`absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl transition-all duration-300 ${isSceneControlsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'}`}>
               <button onClick={handleGenerate} disabled={isLoadingImage}
                 className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 disabled:opacity-60 disabled:cursor-not-allowed"
                 title={isLoadingImage ? "Generating..." : "Generate Scene Image"}>
@@ -982,7 +992,12 @@ export default function App() {
                   <p className="text-xs text-on-surface-variant mb-4 px-2 leading-relaxed">
                     Generate a quick recap of the previous 25 paragraphs using your local AI model.
                   </p>
-                  <SummarizerMVP paragraphs={vnParagraphs.slice(Math.max(0, activeParagraphIndex - 25), activeParagraphIndex).map(p => p.text)} />
+                  <SummarizerMVP 
+                    paragraphs={vnParagraphs.slice(Math.max(0, activeParagraphIndex - 25), activeParagraphIndex).map(p => p.text)} 
+                    existingSummary={persistentSummary}
+                    onSummaryGenerated={setPersistentSummary}
+                    bookId={activeBook.id}
+                  />
                 </div>
               )}
 
