@@ -10,6 +10,8 @@ import { env } from '@xenova/transformers';
 
 // Fixes tokenizer loading issues by forcing remote Hugging Face CDN downloads
 env.allowLocalModels = false;
+env.allowRemoteModels = true;
+env.useBrowserCache = false;
 
 // --- THE SLEDGEHAMMER: GLOBAL BIGINT PATCH ---
 // web-txt2img's internal code uses Int32Array.from() on tokenizer outputs.
