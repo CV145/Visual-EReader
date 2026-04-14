@@ -37,7 +37,7 @@ export function SummarizerMVP({ paragraphs }: { paragraphs: string[] }) {
         setLoadingMsg(`Loading Model: ${report.text}`);
       });
 
-      const textToSummarize = paragraphs.slice(0, 20).join("\n\n");
+      const textToSummarize = paragraphs.join("\n\n");
       
       setLoadingMsg("Summarizing...");
       const result = await summarizeTextLocally(textToSummarize);
@@ -59,7 +59,7 @@ export function SummarizerMVP({ paragraphs }: { paragraphs: string[] }) {
         disabled={isSummarizing || paragraphs.length === 0}
         className="w-full bg-primary/20 hover:bg-primary text-primary hover:text-on-primary border border-primary/50 px-4 py-2 rounded transition-colors disabled:opacity-50 font-bold uppercase tracking-wider text-sm cursor-pointer"
       >
-        {isSummarizing ? "Processing..." : "Summarize Next 20 Paras (Local)"}
+        {isSummarizing ? "Processing..." : "Summarize Previous 25 Paras (Local)"}
       </button>
 
       {loadingMsg && <p className="mt-2 text-xs text-yellow-400 font-mono">{loadingMsg}</p>}
@@ -124,7 +124,8 @@ export default function App() {
 
   // ─── Drawer ───────────────────────────────────────────────────────────────
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<'toc' | 'bookmarks' | 'gallery' | 'characters' | 'genre'>('toc');
+  const [isSummaryVisible, setIsSummaryVisible] = useState(true);
+  const [drawerTab, setDrawerTab] = useState<'toc' | 'bookmarks' | 'gallery' | 'characters' | 'genre' | 'summary'>('toc');
   const [tocItems, setTocItems] = useState<any[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [gallery, setGallery] = useState<GalleryImage[]>([]);
@@ -827,9 +828,11 @@ export default function App() {
 
         {bookLoaded ? (
           <>
-            <div className="absolute top-4 left-6 z-50 w-80 pointer-events-auto">
-              <SummarizerMVP paragraphs={vnParagraphs.slice(activeParagraphIndex).map(p => p.text)} />
-            </div>
+            {isSummaryVisible && (
+              <div className="absolute top-4 left-6 z-50 w-80 pointer-events-auto">
+                <SummarizerMVP paragraphs={vnParagraphs.slice(Math.max(0, activeParagraphIndex - 25), activeParagraphIndex).map(p => p.text)} />
+              </div>
+            )}
             
             <div className="absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
               <button onClick={handleGenerate} disabled={isLoadingImage}
@@ -853,6 +856,11 @@ export default function App() {
                 className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
                 title="Toggle TextBox (H)">
                 <span className="material-symbols-outlined">{isVnTextHidden ? 'visibility_off' : 'visibility'}</span>
+              </button>
+              <button onClick={() => setIsSummaryVisible(!isSummaryVisible)}
+                className={`bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 ${isSummaryVisible ? 'text-primary' : 'text-white'}`}
+                title="Toggle Summary Box">
+                <span className="material-symbols-outlined">{isSummaryVisible ? 'speaker_notes_off' : 'description'}</span>
               </button>
             </div>
 
@@ -959,16 +967,26 @@ export default function App() {
 
             {/* Tabs */}
             <div className="flex border-b border-outline-variant/20 px-2">
-              {(['toc', 'bookmarks', 'gallery', 'characters', 'genre'] as const).map(tab => (
+              {(['toc', 'bookmarks', 'gallery', 'characters', 'genre', 'summary'] as const).map(tab => (
                 <button key={tab} onClick={() => setDrawerTab(tab)}
-                  className={`flex-1 pb-3 pt-1 text-[10px] font-label font-bold uppercase tracking-widest text-center transition-colors cursor-pointer ${drawerTab === tab ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'}`}>
-                  {tab === 'toc' ? 'Chapters' : tab === 'characters' ? 'Cast' : tab === 'genre' ? 'Audio' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  className={`flex-1 pb-3 pt-1 text-[8px] sm:text-[10px] font-label font-bold uppercase tracking-widest text-center transition-colors cursor-pointer ${drawerTab === tab ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'}`}>
+                  {tab === 'toc' ? 'Chapters' : tab === 'characters' ? 'Cast' : tab === 'genre' ? 'Audio' : tab === 'summary' ? 'Summary' : tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
               ))}
             </div>
 
             <div className="flex-1 overflow-y-auto px-2 py-3">
-              {/* TOC */}
+            {/* Summary */}
+              {drawerTab === 'summary' && (
+                <div className="px-1 py-2">
+                  <p className="text-xs text-on-surface-variant mb-4 px-2 leading-relaxed">
+                    Generate a quick recap of the previous 25 paragraphs using your local AI model.
+                  </p>
+                  <SummarizerMVP paragraphs={vnParagraphs.slice(Math.max(0, activeParagraphIndex - 25), activeParagraphIndex).map(p => p.text)} />
+                </div>
+              )}
+
+
               {/* TOC */}
               {drawerTab === 'toc' && (
                 <ul className="space-y-0.5">
@@ -1174,3 +1192,4 @@ export default function App() {
     </>
   );
 }
+

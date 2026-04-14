@@ -229,9 +229,25 @@ export async function generateImagePromptLocally(textChunk: string): Promise<str
 
   const systemPrompt = `You are an AI prompt engineer for Stable Diffusion. 
 Analyze the provided text and extract a comma-separated list of visual and environmental keywords that describe the scene. 
-Keep it under 30 words. Focus ONLY on abstract, ambient, and visual elements (colors, lighting, mood, scenery). 
+Keep it under 30 words because we only have a 77 token context window. Focus ONLY on abstract, ambient, and visual elements (colors, lighting, mood, scenery). 
 Do NOT write full sentences. Do NOT include complex narrative details.
-Example: dark forest, moonlight, glowing mushrooms, atmospheric, cinematic lighting, misty.`;
+Example output: dark forest, moonlight, glowing mushrooms, atmospheric, cinematic lighting, misty.`;
+
+/*const systemPrompt = `You are a visual scene descriptor for an image AI. 
+Analyze the following text and extract ONLY descriptive, visual keywords. Keep it under 30 words.
+Focus on:
+1. The Setting (e.g., "cyberpunk city", "dimly lit room", "lush forest")
+2. Atmosphere/Weather (e.g., "heavy rain", "golden hour", "neon lights")
+3. Characters and Actions (e.g., "two characters talking", "a woman looking out a window")
+4. Style (e.g., "cinematic", "highly detailed", "digital art")
+
+Format: Provide ONLY a comma-separated list of keywords. 
+Do NOT include any introductory text or bullet points.
+
+Example output:
+cyberpunk city, rain, two characters talking, dimly lit room
+
+`;*/
 
   const prompt = `${systemPrompt}\n\nText to analyze:\n${textChunk}`;
 
