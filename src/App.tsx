@@ -885,7 +885,8 @@ export default function App() {
                 <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto px-2" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
                   {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? (
                     <div
-                      className="font-body leading-[1.8] tracking-wide transition-all duration-300 rounded-lg p-4 epub-html-content"
+                      onClick={nextPage}
+                      className="font-body leading-[1.8] tracking-wide transition-all duration-300 rounded-lg p-4 epub-html-content cursor-pointer active:bg-white/5"
                       style={{
                         fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem`,
                         backgroundColor: 'rgba(0,0,0,0.25)',
