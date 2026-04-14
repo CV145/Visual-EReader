@@ -611,7 +611,7 @@ export default function App() {
           let latest = await loadCharacters(activeBook.id);
           
           for (const char of extracted) {
-            const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
+            const profile: CharacterProfile = { name: char.name, description: char.description, profile: char.profile, updatedAt: Date.now() };
             latest = await upsertCharacter(activeBook.id, profile);
           }
           setCharacters(latest);
@@ -632,7 +632,8 @@ export default function App() {
             if (extracted.length === 0 || !activeBook) return;
             let latest = await loadCharacters(activeBook.id);
             for (const char of extracted) {
-              const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
+              // ---> ADD char.profile HERE
+              const profile: CharacterProfile = { name: char.name, description: char.description, profile: char.profile, updatedAt: Date.now() };
               latest = await upsertCharacter(activeBook.id, profile);
             }
             setCharacters(latest);
@@ -1087,7 +1088,19 @@ export default function App() {
                               {char.portrait && (
                                 <img src={char.portrait} alt={char.name} className="w-full h-40 object-cover rounded-lg mb-3 border border-outline-variant/20" />
                               )}
-                              <p className="text-xs text-on-surface-variant font-body leading-relaxed mb-3">{char.description}</p>
+                              
+                              <div className="mb-3">
+                                <h4 className="text-[10px] font-bold uppercase tracking-widest text-primary mb-1">Appearance</h4>
+                                <p className="text-xs text-on-surface-variant font-body leading-relaxed">{char.description || "Appearance unknown."}</p>
+                              </div>
+
+                              {char.profile && (
+                                <div className="mb-4">
+                                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-primary mb-1">Biography & Role</h4>
+                                  <p className="text-xs text-on-surface-variant font-body leading-relaxed">{char.profile}</p>
+                                </div>
+                              )}
+                              
                               <button onClick={() => deleteCharacter(char.name)}
                                 className="text-[10px] text-red-400/70 hover:text-red-400 transition-colors cursor-pointer font-label uppercase tracking-wider flex items-center gap-1">
                                 <span className="material-symbols-outlined text-xs">delete</span> Remove Profile

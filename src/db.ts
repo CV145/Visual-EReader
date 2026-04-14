@@ -32,8 +32,10 @@ export interface GalleryImage {
 export interface CharacterProfile {
   name: string;
   description: string; // Appearance details extracted by AI
+  bio?: string;        // Information about who the character is (personality, role, etc.)
   portrait?: string;   // Base64 data URL of AI-generated portrait (oil-painting style)
   updatedAt: number;
+  profile?: string; //Biography/lore
 }
 
 // ─── Library Manifest ────────────────────────────────────────────────────────
@@ -135,8 +137,8 @@ export const saveCharacters = async (bookId: string, profiles: CharacterProfile[
 };
 
 export const upsertCharacter = async (bookId: string, incoming: CharacterProfile): Promise<CharacterProfile[]> => {
-  // Reject blank profiles immediately — no empty entries allowed
-  if (!incoming.name.trim() || !incoming.description.trim()) {
+  // Reject blank profiles immediately — require a name and at least ONE descriptor
+  if (!incoming.name.trim() || (!incoming.description?.trim() && !incoming.profile?.trim())) {
     return loadCharacters(bookId);
   }
 
@@ -147,13 +149,25 @@ export const upsertCharacter = async (bookId: string, incoming: CharacterProfile
   const idx = existing.findIndex(c => c.name.toLowerCase() === incoming.name.toLowerCase());
   
   if (idx >= 0) {
-    // ACCUMULATE: append new details rather than replacing — prevents regressions from sparse excerpts
+    // ACCUMULATE: append new details rather than replacing
     const old = existing[idx];
-    const newDesc = incoming.description.trim();
-    const oldDesc = old.description.trim();
-    // Only append if the incoming description contains different information (avoid duplication)
-    const combined = oldDesc.includes(newDesc) ? oldDesc : `${oldDesc}. ${newDesc}`;
-    existing[idx] = { ...old, description: combined, updatedAt: incoming.updatedAt };
+    
+    // Merge Appearance
+    const newDesc = (incoming.description || '').trim();
+    const oldDesc = (old.description || '').trim();
+    const combinedDesc = oldDesc.includes(newDesc) || !newDesc ? oldDesc : `${oldDesc}${oldDesc ? '. ' : ''}${newDesc}`;
+    
+    // Merge Lore/Profile
+    const newProfile = (incoming.profile || '').trim();
+    const oldProfile = (old.profile || '').trim();
+    const combinedProfile = oldProfile.includes(newProfile) || !newProfile ? oldProfile : `${oldProfile}${oldProfile ? '. ' : ''}${newProfile}`;
+
+    existing[idx] = { 
+      ...old, 
+      description: combinedDesc, 
+      profile: combinedProfile, 
+      updatedAt: incoming.updatedAt 
+    };
   } else {
     // Brand new character — add them
     existing.push(incoming);

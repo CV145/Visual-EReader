@@ -145,13 +145,16 @@ export async function detectOverallGenre(excerpt: string): Promise<string> {
 export interface ExtractedCharacter {
   name: string;
   description: string;
+  profile?: string;
 }
 
 export async function extractCharacterProfiles(paragraphsText: string): Promise<ExtractedCharacter[]> {
    const ai = getClient();
-   // Updated prompt to explicitly request FIRST NAME ONLY
-   const prompt = `You are a meticulous Character Designer reading a story. Extract all NAMED characters (use ONLY their first name, no last names allowed) and describe their physical appearance only.
-   Output ONLY a valid JSON array with objects having "name" and "description" fields. "description" = physical appearance ONLY (hair, eyes, skin, build, clothing). If none found, output []. No text outside the JSON array.
+   const prompt = `You are a meticulous Character Designer reading a story. Extract all NAMED characters (use ONLY their first name, no last names allowed).
+   Output ONLY a valid JSON array with objects having "name", "description", and "profile" fields. 
+   "description" = physical appearance ONLY (hair, eyes, skin, build, clothing). Do NOT include personality here.
+   "profile" = Who the character is, their personality, background, and role in the story.
+   If none found, output []. No text outside the JSON array.
    Story Excerpt: "${paragraphsText.slice(0, 15000)}"`;
    
    try {
@@ -163,7 +166,8 @@ export async function extractCharacterProfiles(paragraphsText: string): Promise<
            // Programmatic failsafe: forcefully strip anything after the first space
            return parsed.map(c => ({
                name: c.name ? c.name.trim().split(/\s+/)[0] : '',
-               description: c.description
+               description: c.description || '',
+               profile: c.profile || ''
            })) as ExtractedCharacter[];
        }
        return [];
