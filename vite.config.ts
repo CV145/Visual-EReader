@@ -8,6 +8,9 @@ export default defineConfig(({mode}) => {
   return {
     base: '/Visual-EReader/',
     plugins: [react(), tailwindcss()],
+    worker: {
+      format: 'es',
+    },
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },
