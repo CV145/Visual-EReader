@@ -5,7 +5,6 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
   const [includeCharacters, setIncludeCharacters] = useState(false);
   const [imageStyle, setImageStyle] = useState('cinematic');
   const [isStretchImage, setIsStretchImage] = useState(false);
-  const [imageEngine, setImageEngine] = useState(false)
 
   useEffect(() => {
     const savedKey = localStorage.getItem('GEMINI_API_KEY');
@@ -16,9 +15,6 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
     if (savedStyle) setImageStyle(savedStyle);
     const stretchPref = localStorage.getItem('STRETCH_IMAGE');
     setIsStretchImage(stretchPref === 'true');
-
-    const savedEngine = localStorage.getItem('IMAGE_ENGINE_PREF');
-    if (savedEngine) setImageEngine(savedEngine);
   }, [isOpen]);
 
   const saveSettings = () => {
@@ -26,9 +22,6 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
     localStorage.setItem('INCLUDE_CHARACTERS', includeCharacters ? 'true' : 'false');
     localStorage.setItem('IMAGE_STYLE_PREF', imageStyle);
     localStorage.setItem('STRETCH_IMAGE', isStretchImage ? 'true' : 'false');
-
-    localStorage.setItem('IMAGE_ENGINE_PREF', imageEngine);
-
     onClose();
   };
 
@@ -52,18 +45,6 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
         
         {/* Image Generation Options */}
         <label className="block text-on-surface-variant font-label text-xs uppercase tracking-widest mb-3">Image Generation</label>
-
-        <div className="mb-4">
-          <label className="block text-on-surface text-sm font-body mb-2">Compute Engine</label>
-          <select
-            value={imageEngine}
-            onChange={(e) => setImageEngine(e.target.value)}
-            className="w-full bg-surface-container-highest border border-outline-variant text-on-surface p-3 rounded-lg focus:outline-none focus:border-primary transition-colors appearance-none cursor-pointer"
-          >
-            <option value="online">Online (Gemini Cloud API)</option>
-            <option value="local">Local (Janus-1.3B via WebGPU)</option>
-          </select>
-        </div>
         
         <div className="mb-4">
           <label className="block text-on-surface text-sm font-body mb-2">Art Style</label>

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import { SettingsModal } from './SettingsModal';
-import { LocalImageEngine } from './imageEngine';
 import { generateAmbientImage, analyzeMusicalSentiment, extractCharacterProfiles, detectOverallGenre } from './gemini';
 import { LyriaEngine } from './lyriaEngine';
 import {initLocalLLM, summarizeTextLocally} from './lyriaEngine';
@@ -90,8 +89,6 @@ export default function App() {
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [showSafetyPopup, setShowSafetyPopup] = useState(false);
   const [sceneCharacters, setSceneCharacters] = useState<string[]>([]);
-  const localImageRef = useRef<LocalImageEngine | null>(null);
-  const [imageLoadingMsg, setImageLoadingMsg] = useState('');
   //const [isGeneratingPortraits, setIsGeneratingPortraits] = useState(false);
   const [ttsSpeed, setTtsSpeed] = useState(() => {
     const saved = localStorage.getItem('TTS_SPEED');
@@ -542,91 +539,59 @@ export default function App() {
   const handleGenerate = async () => {
     if (!activeBook) { alert("Please open a book first!"); return; }
     
-    // Pass the next 50 paragraphs from the current one as context
+    // Pass the next 25 paragraphs from the current one as context
     const contextForImage = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 50).map(p => p.text).join('\n');
     if (!contextForImage) { alert("Please read a few pages first!"); return; }
 
     setIsLoadingImage(true);
     try {
       const stylePref = localStorage.getItem('IMAGE_STYLE_PREF') || 'cinematic';
-      const enginePref = localStorage.getItem('IMAGE_ENGINE_PREF') || 'online';
       
-      let newBg = '';
+      let finalCharacterContext = characters.length > 0
+        ? characters.map(c => `${c.name}: ${c.description}`).join('\n')
+        : undefined;
 
-      if (enginePref === 'local') {
-        // --- LOCAL WEBGPU GENERATION ---
-        if (!localImageRef.current) {
-           localImageRef.current = new LocalImageEngine((msg) => {
-              console.log(msg);
-              setImageLoadingMsg(msg); 
-           });
-           await localImageRef.current.init();
+      // If generating "Character Portraits", immediately evaluate profiles before image generation
+      if (stylePref === 'character-portraits') {
+        const extracted = await extractCharacterProfiles(contextForImage);
+        let latest = await loadCharacters(activeBook.id);
+        
+        for (const char of extracted) {
+          const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
+          latest = await upsertCharacter(activeBook.id, profile);
         }
-
-        // Local models do better with descriptive keyword lists rather than giant text blocks
-        const promptText = "A highly detailed, cinematic illustration of: " + contextForImage.substring(0, 400).replace(/\n/g, ' ');
-        newBg = await localImageRef.current.generate(promptText);
-
-        // Passively extract characters in the background using Gemini just so the Cast page populates
-        if (stylePref !== 'character-portraits') {
-          extractCharacterProfiles(contextForImage).then(async (extracted) => {
-            if (extracted.length === 0 || !activeBook) return;
-            let latest = await loadCharacters(activeBook.id);
-            for (const char of extracted) {
-              const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
-              latest = await upsertCharacter(activeBook.id, profile);
-            }
-            setCharacters(latest);
-          }).catch(e => console.error("Passive character extraction failed", e));
-        }
-
-      } else {
-        // --- ONLINE GEMINI GENERATION ---
-        let finalCharacterContext = characters.length > 0
-          ? characters.map(c => `${c.name}: ${c.description}`).join('\n')
+        setCharacters(latest);
+        
+        // Pass strictly the characters dynamically found in the scene to prevent unrelated generation
+        const extractedNames = extracted.map(e => e.name.toLowerCase());
+        const presentCharacters = latest.filter(c => extractedNames.includes(c.name.toLowerCase()));
+        
+        finalCharacterContext = presentCharacters.length > 0 
+          ? presentCharacters.map(c => `${c.name}: ${c.description}`).join('\n')
           : undefined;
-
-        // If generating "Character Portraits", immediately evaluate profiles before image generation
-        if (stylePref === 'character-portraits') {
-          const extracted = await extractCharacterProfiles(contextForImage);
-          let latest = await loadCharacters(activeBook.id);
-          
-          for (const char of extracted) {
-            const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
-            latest = await upsertCharacter(activeBook.id, profile);
-          }
-          setCharacters(latest);
-          
-          const extractedNames = extracted.map(e => e.name.toLowerCase());
-          const presentCharacters = latest.filter(c => extractedNames.includes(c.name.toLowerCase()));
-          
-          finalCharacterContext = presentCharacters.length > 0 
-            ? presentCharacters.map(c => `${c.name}: ${c.description}`).join('\n')
-            : undefined;
-        }
-
-        newBg = await generateAmbientImage(contextForImage, finalCharacterContext);
-
-        if (stylePref !== 'character-portraits') {
-          extractCharacterProfiles(contextForImage).then(async (extracted) => {
-            if (extracted.length === 0 || !activeBook) return;
-            let latest = await loadCharacters(activeBook.id);
-            for (const char of extracted) {
-              const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
-              latest = await upsertCharacter(activeBook.id, profile);
-            }
-            setCharacters(latest);
-          });
-        }
       }
 
-      // Shared logic: Save to gallery
+      const newBg = await generateAmbientImage(contextForImage, finalCharacterContext);
       setBgImage(newBg);
+
+      // Save to gallery
       const newItem: GalleryImage = { id: Date.now().toString(), base64: newBg, timestamp: Date.now(), chapter: chapterTitle || 'Unknown' };
       const updatedGallery = [newItem, ...gallery];
       setGallery(updatedGallery);
       await saveGallery(activeBook.id, updatedGallery);
 
+      // Passive background character extraction for other styles
+      if (stylePref !== 'character-portraits') {
+        extractCharacterProfiles(contextForImage).then(async (extracted) => {
+          if (extracted.length === 0 || !activeBook) return;
+          let latest = await loadCharacters(activeBook.id);
+          for (const char of extracted) {
+            const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
+            latest = await upsertCharacter(activeBook.id, profile);
+          }
+          setCharacters(latest);
+        });
+      }
     } catch (e: any) {
       if (e.message === "SAFETY_BLOCKED") {
         setShowSafetyPopup(true);
@@ -635,7 +600,6 @@ export default function App() {
       }
     } finally {
       setIsLoadingImage(false);
-      setImageLoadingMsg('');
     }
   };
 
@@ -818,7 +782,7 @@ export default function App() {
             <div className="absolute top-4 left-6 z-50 w-80 pointer-events-auto">
               <SummarizerMVP paragraphs={vnParagraphs.slice(activeParagraphIndex).map(p => p.text)} />
             </div>
-
+            
             <div className="absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl">
               <button onClick={handleGenerate} disabled={isLoadingImage}
                 className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 disabled:opacity-60 disabled:cursor-not-allowed"
@@ -827,11 +791,6 @@ export default function App() {
                   ? <span className="material-symbols-outlined animate-spin">progress_activity</span>
                   : <span className="material-symbols-outlined">magic_button</span>}
               </button>
-              {imageLoadingMsg && (
-                <div className="absolute top-16 right-0 bg-black/80 text-primary text-xs p-2 rounded-lg whitespace-nowrap border border-primary/30 font-mono shadow-xl backdrop-blur-md">
-                  {imageLoadingMsg}
-                </div>
-              )}
               <button onClick={() => { setDrawerTab('characters'); setIsDrawerOpen(true); }}
                 className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
                 title="Character Profiles">
