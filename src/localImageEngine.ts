@@ -93,12 +93,26 @@ export class ImageGenerator {
     }
 
     console.log("[Engine] Generating image...");
-    try {
+    /*try {
       const result = await generateImage({ 
         model: 'sd-turbo',
         prompt: promptText,
+        width: 512,
+        height: 512,
         seed: Math.floor(Math.random() * 1000000) 
-      });
+      });*/
+      try {
+      // Cast to 'any' to bypass strict TypeScript checks for num_inference_steps
+      const genParams: any = {
+        model: 'sd-turbo',
+        prompt: promptText,
+        width: 512,
+        height: 512,
+        num_inference_steps: 2, // Reduces VRAM spike significantly
+        seed: Math.floor(Math.random() * 1000000)
+      };
+
+      const result = await generateImage(genParams);
 
       if (!result.ok || !result.blob) {
         throw new Error((result as any).reason || "Generation failed.");
