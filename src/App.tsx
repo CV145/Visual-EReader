@@ -4,6 +4,10 @@ import { SettingsModal } from './SettingsModal';
 import { generateAmbientImage, analyzeMusicalSentiment, extractCharacterProfiles, detectOverallGenre } from './gemini';
 import { LyriaEngine } from './lyriaEngine';
 import {initLocalLLM, summarizeTextLocally} from './lyriaEngine';
+
+import { generateImagePromptLocally } from './lyriaEngine';
+import { localImageEngine } from './localImageEngine';
+
 import LibraryPage from './LibraryPage';
 import {
   BookMeta, Bookmark, GalleryImage, CharacterProfile,
@@ -540,58 +544,84 @@ export default function App() {
     if (!activeBook) { alert("Please open a book first!"); return; }
     
     // Pass the next 25 paragraphs from the current one as context
-    const contextForImage = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 50).map(p => p.text).join('\n');
+    const contextForImage = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 25).map(p => p.text).join('\n');
     if (!contextForImage) { alert("Please read a few pages first!"); return; }
 
     setIsLoadingImage(true);
     try {
-      const stylePref = localStorage.getItem('IMAGE_STYLE_PREF') || 'cinematic';
-      
-      let finalCharacterContext = characters.length > 0
-        ? characters.map(c => `${c.name}: ${c.description}`).join('\n')
-        : undefined;
+      const provider = localStorage.getItem('IMAGE_GEN_PROVIDER') || 'cloud';
+      let newBg = '';
 
-      // If generating "Character Portraits", immediately evaluate profiles before image generation
-      if (stylePref === 'character-portraits') {
-        const extracted = await extractCharacterProfiles(contextForImage);
-        let latest = await loadCharacters(activeBook.id);
-        
-        for (const char of extracted) {
-          const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
-          latest = await upsertCharacter(activeBook.id, profile);
+      if (provider === 'local') {
+        if (!localImageEngine.isModelDownloaded()) {
+          alert("Please download the local image model in Settings first!");
+          setIsLoadingImage(false);
+          return;
         }
-        setCharacters(latest);
+
+        try {
+          // 1. Get Keywords from local LLM
+          const keywords = await generateImagePromptLocally(contextForImage);
+          console.log("Local Prompt Generated:", keywords);
+          
+          // 2. Generate Image using the Class Engine
+          newBg = await localImageEngine.generateImage(keywords);
+        } catch (localErr: any) {
+           alert("Local Generation Failed. Did you initialize the Local AI Engine (e.g., via the Summarizer)? " + localErr.message);
+           setIsLoadingImage(false);
+           return;
+        }
+
+      } else {
+        // --- EXISTING CLOUD LOGIC ---
+        const stylePref = localStorage.getItem('IMAGE_STYLE_PREF') || 'cinematic';
         
-        // Pass strictly the characters dynamically found in the scene to prevent unrelated generation
-        const extractedNames = extracted.map(e => e.name.toLowerCase());
-        const presentCharacters = latest.filter(c => extractedNames.includes(c.name.toLowerCase()));
-        
-        finalCharacterContext = presentCharacters.length > 0 
-          ? presentCharacters.map(c => `${c.name}: ${c.description}`).join('\n')
+        let finalCharacterContext = characters.length > 0
+          ? characters.map(c => `${c.name}: ${c.description}`).join('\n')
           : undefined;
-      }
 
-      const newBg = await generateAmbientImage(contextForImage, finalCharacterContext);
-      setBgImage(newBg);
-
-      // Save to gallery
-      const newItem: GalleryImage = { id: Date.now().toString(), base64: newBg, timestamp: Date.now(), chapter: chapterTitle || 'Unknown' };
-      const updatedGallery = [newItem, ...gallery];
-      setGallery(updatedGallery);
-      await saveGallery(activeBook.id, updatedGallery);
-
-      // Passive background character extraction for other styles
-      if (stylePref !== 'character-portraits') {
-        extractCharacterProfiles(contextForImage).then(async (extracted) => {
-          if (extracted.length === 0 || !activeBook) return;
+        // If generating "Character Portraits", immediately evaluate profiles before image generation
+        if (stylePref === 'character-portraits') {
+          const extracted = await extractCharacterProfiles(contextForImage);
           let latest = await loadCharacters(activeBook.id);
+          
           for (const char of extracted) {
             const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
             latest = await upsertCharacter(activeBook.id, profile);
           }
           setCharacters(latest);
-        });
+          
+          const extractedNames = extracted.map(e => e.name.toLowerCase());
+          const presentCharacters = latest.filter(c => extractedNames.includes(c.name.toLowerCase()));
+          
+          finalCharacterContext = presentCharacters.length > 0 
+            ? presentCharacters.map(c => `${c.name}: ${c.description}`).join('\n')
+            : undefined;
+        }
+
+        newBg = await generateAmbientImage(contextForImage, finalCharacterContext);
+
+        // Passive background character extraction for other styles
+        if (stylePref !== 'character-portraits') {
+          extractCharacterProfiles(contextForImage).then(async (extracted) => {
+            if (extracted.length === 0 || !activeBook) return;
+            let latest = await loadCharacters(activeBook.id);
+            for (const char of extracted) {
+              const profile: CharacterProfile = { name: char.name, description: char.description, updatedAt: Date.now() };
+              latest = await upsertCharacter(activeBook.id, profile);
+            }
+            setCharacters(latest);
+          });
+        }
       }
+
+      // Save to gallery (Applies to both Local and Cloud)
+      setBgImage(newBg);
+      const newItem: GalleryImage = { id: Date.now().toString(), base64: newBg, timestamp: Date.now(), chapter: chapterTitle || 'Unknown' };
+      const updatedGallery = [newItem, ...gallery];
+      setGallery(updatedGallery);
+      await saveGallery(activeBook.id, updatedGallery);
+
     } catch (e: any) {
       if (e.message === "SAFETY_BLOCKED") {
         setShowSafetyPopup(true);

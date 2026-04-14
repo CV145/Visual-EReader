@@ -219,3 +219,24 @@ export async function summarizeTextLocally(textChunk: string): Promise<string> {
 
   return completion.choices[0].message.content || "Could not generate summary.";
 }
+
+export async function generateImagePromptLocally(textChunk: string): Promise<string> {
+  if (!engine) {
+    throw new Error("Local LLM engine not initialized. Please load the LLM first.");
+  }
+
+  const systemPrompt = `You are an AI prompt engineer for Stable Diffusion. 
+Analyze the provided text and extract a comma-separated list of visual and environmental keywords that describe the scene. 
+Keep it under 30 words. Focus ONLY on abstract, ambient, and visual elements (colors, lighting, mood, scenery). 
+Do NOT write full sentences. Do NOT include complex narrative details.
+Example: dark forest, moonlight, glowing mushrooms, atmospheric, cinematic lighting, misty.`;
+
+  const prompt = `${systemPrompt}\n\nText to analyze:\n${textChunk}`;
+
+  const completion = await engine.chat.completions.create({
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.4, // Lower temperature for more focused keyword extraction
+  });
+
+  return completion.choices[0].message.content || "dark, atmospheric, ambient, abstract, moody, cinematic";
+}
