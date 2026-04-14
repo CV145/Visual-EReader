@@ -94,6 +94,12 @@ export default function App() {
   const [showSafetyPopup, setShowSafetyPopup] = useState(false);
   const [sceneCharacters, setSceneCharacters] = useState<string[]>([]);
   //const [isGeneratingPortraits, setIsGeneratingPortraits] = useState(false);
+
+  const [imageGenProvider, setImageGenProvider] = useState<'cloud' | 'local'>(() => {
+    const saved = localStorage.getItem('IMAGE_GEN_PROVIDER');
+    return (saved === 'local' || saved === 'cloud') ? saved : 'cloud';
+  });
+
   const [ttsSpeed, setTtsSpeed] = useState(() => {
     const saved = localStorage.getItem('TTS_SPEED');
     return saved ? parseFloat(saved) : 1.0;
@@ -145,6 +151,15 @@ export default function App() {
     setIsStretchImage(localStorage.getItem('STRETCH_IMAGE') === 'true');
     const savedFontSize = localStorage.getItem('FONT_SIZE');
     if (savedFontSize) setFontSizeState(parseInt(savedFontSize, 10));
+  };
+
+  const handleSettingsSave = () => {
+    const saved = localStorage.getItem('IMAGE_GEN_PROVIDER');
+    if (saved === 'local' || saved === 'cloud') {
+      setImageGenProvider(saved);
+    }
+    // Also refresh other global visual settings if needed
+    setIsStretchImage(localStorage.getItem('STRETCH_IMAGE') === 'true');
   };
 
   // ─── Open Book from Library ───────────────────────────────────────────────
@@ -549,10 +564,10 @@ export default function App() {
 
     setIsLoadingImage(true);
     try {
-      const provider = localStorage.getItem('IMAGE_GEN_PROVIDER') || 'cloud';
+      //const provider = localStorage.getItem('IMAGE_GEN_PROVIDER') || 'cloud';
       let newBg = '';
 
-      if (provider === 'local') {
+      if (imageGenProvider === 'local') {
         if (!localImageEngine.isModelDownloaded()) {
           alert("Please download the local image model in Settings first!");
           setIsLoadingImage(false);
@@ -560,6 +575,9 @@ export default function App() {
         }
 
         try {
+          // Boots the local LLM into memory
+          await initLocalLLM((report) => console.log("[LLM]", report.text));
+
           // 1. Get Keywords from local LLM
           const keywords = await generateImagePromptLocally(contextForImage);
           console.log("Local Prompt Generated:", keywords);
@@ -919,7 +937,11 @@ export default function App() {
         </div>
       </footer>
 
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
+        onSave={handleSettingsSave} 
+      />
 
       {/* Drawer */}
       {isDrawerOpen && (

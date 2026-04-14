@@ -6,10 +6,26 @@ import {
   generateImage, 
   purgeAllCaches 
 } from 'web-txt2img';
-import { env, AutoTokenizer } from '@xenova/transformers';
+import { env } from '@xenova/transformers';
 
-// Fixes tokenizer loading issues by forcing remote Hugging Face CDN downloads [3, 4]
+// Fixes tokenizer loading issues by forcing remote Hugging Face CDN downloads
 env.allowLocalModels = false;
+
+// --- THE SLEDGEHAMMER: GLOBAL BIGINT PATCH ---
+// web-txt2img's internal code uses Int32Array.from() on tokenizer outputs.
+// Transformers.js v3 outputs BigInts. JavaScript crashes when combining the two.
+// This globally intercepts that exact crash and seamlessly converts BigInts to Numbers.
+const originalInt32ArrayFrom = Int32Array.from;
+(Int32Array as any).from = function(source: any, mapFn?: any, thisArg?: any) {
+  // If the source is an array containing BigInts, intercept and sanitize it
+  if (source && source.length > 0 && typeof source[0] === 'bigint') {
+    const safeArray = Array.from(source).map(val => Number(val));
+    return originalInt32ArrayFrom.call(this, safeArray, mapFn, thisArg);
+  }
+  // Otherwise, let it behave exactly as normal
+  return originalInt32ArrayFrom.call(this, source, mapFn, thisArg);
+};
+// ---------------------------------------------
 
 export class ImageGenerator {
   isModelDownloaded(): boolean {
@@ -22,7 +38,6 @@ export class ImageGenerator {
     try {
       console.log("[Engine] Detecting environment capabilities...");
       
-      // Using Direct API's detectCapabilities [2]
       const caps = await detectCapabilities();
       console.log("[Engine] Capabilities detected:", caps);
       
@@ -30,31 +45,40 @@ export class ImageGenerator {
         throw new Error("WebGPU is not supported or enabled in this browser.");
       }
 
-      console.log("[Engine] Starting model download for 'sd-turbo'...");
+      console.log("[Engine] Starting model preparation for 'sd-turbo'...");
+
+      const isAlreadyCached = this.isModelDownloaded();
       
-      /// Using Direct API's loadModel (expects 1-2 arguments)
+      // Using Direct API's loadModel
       await loadModel(
         'sd-turbo', 
         { 
-          // Injecting the Tokenizer directly (using 'any' cast as before)
-          tokenizer: () => AutoTokenizer,
+          // We removed the messy tokenizer injections! 
+          // The library will use its internal tokenizer, and our global patch will protect it.
+
+          wasmPaths: 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/',
+          backendPreference: ['webgpu'],
           
-          // onProgress goes INSIDE the options object in the base API
           onProgress: (progress: any) => {
             if (onProgress) {
+              const actionText = isAlreadyCached ? "Loading into GPU Memory" : "Downloading from Internet";
               if (progress.pct != null) {
-                onProgress(`Downloading: ${progress.pct.toFixed(0)}%`);
+                onProgress(`${actionText}: ${progress.pct.toFixed(0)}%`);
               } else {
-                onProgress("Downloading & Caching Model...");
+                onProgress(`${actionText}...`);
               }
             }
           }
         } as any 
       );
+
+      if (!isModelLoaded('sd-turbo')) {
+        throw new Error("Backend crashed during initialization. Model is not loaded.");
+      }
       
       console.log("[Engine] Model load complete!");
       localStorage.setItem('LOCAL_SD_MODEL_CACHED', 'true');
-      if (onProgress) onProgress("Download complete!");
+      if (onProgress) onProgress("Ready!");
 
     } catch (err) {
       console.error("[Engine] FATAL ERROR during setup:", err);
@@ -64,14 +88,12 @@ export class ImageGenerator {
   }
 
   async generateImage(promptText: string): Promise<string> {
-    // Direct API allows us to check loaded state synchronously [2]
     if (!isModelLoaded('sd-turbo')) {
       await this.setup();
     }
 
     console.log("[Engine] Generating image...");
     try {
-      // Using Direct API's generateImage, which requires the model ID explicitly [2, 6]
       const result = await generateImage({ 
         model: 'sd-turbo',
         prompt: promptText,
@@ -99,7 +121,6 @@ export class ImageGenerator {
   }
 
   async deleteModel() {
-    // Purges cache directly [2]
     await purgeAllCaches();
     localStorage.removeItem('LOCAL_SD_MODEL_CACHED');
   }

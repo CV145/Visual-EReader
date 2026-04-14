@@ -201,6 +201,8 @@ export async function initLocalLLM(initProgressCallback: (report: any) => void) 
     
     // Load Gemma 2B (4-bit quantized)
     await engine.reload("gemma-2b-it-q4f32_1-MLC");
+
+    localStorage.setItem('LOCAL_LLM_CACHED', 'true');
   }
   return engine;
 }
@@ -239,4 +241,34 @@ Example: dark forest, moonlight, glowing mushrooms, atmospheric, cinematic light
   });
 
   return completion.choices[0].message.content || "dark, atmospheric, ambient, abstract, moody, cinematic";
+}
+
+/** Checks if the local LLM has been successfully initialized/cached before */
+export function isLLMDownloaded(): boolean {
+  return localStorage.getItem('LOCAL_LLM_CACHED') === 'true';
+}
+
+/** * Clears the local LLM cache. 
+ * Note: For MLC-LLM, weights are in IndexedDB. 
+ * This resets the flag so the UI knows it needs a re-download.
+ */
+export async function deleteLLM() {
+  if (engine) {
+    await engine.unload();
+    engine = null;
+  }
+  localStorage.removeItem('LOCAL_LLM_CACHED');
+  
+  // Optional: Manually clear IndexedDB if you want to recover disk space immediately.
+  // MLC models are usually stored in 'next-web-llm' or similar DB names.
+  try {
+    const dbs = await window.indexedDB.databases();
+    dbs.forEach(db => {
+      if (db.name && (db.name.includes("mlc") || db.name.includes("web-llm"))) {
+        window.indexedDB.deleteDatabase(db.name);
+      }
+    });
+  } catch (e) {
+    console.warn("Failed to clear IndexedDB weights:", e);
+  }
 }

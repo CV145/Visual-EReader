@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { localImageEngine } from './localImageEngine';
-export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+import { isLLMDownloaded, deleteLLM, initLocalLLM } from './lyriaEngine';
+
+export function SettingsModal({ isOpen, onClose, onSave }: { 
+  isOpen: boolean;
+  onClose: () => void
+  onSave?: () => void; }) {
   const [apiKey, setApiKey] = useState('');
   const [includeCharacters, setIncludeCharacters] = useState(false);
   const [imageStyle, setImageStyle] = useState('cinematic');
@@ -10,6 +15,9 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
   const [imageProvider, setImageProvider] = useState<'cloud' | 'local'>('cloud');
   const [modelStatus, setModelStatus] = useState<string>('');
   const [isModelDownloaded, setIsModelDownloaded] = useState(false);
+
+  const [llmStatus, setLlmStatus] = useState<string>('');
+  const [isLocalLLMDownloaded, setIsLocalLLMDownloaded] = useState(false);
 
   useEffect(() => {
     const savedKey = localStorage.getItem('GEMINI_API_KEY');
@@ -25,6 +33,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
     if (savedProvider) setImageProvider(savedProvider);
     
     setIsModelDownloaded(localImageEngine.isModelDownloaded());
+    setIsLocalLLMDownloaded(isLLMDownloaded());
   }, [isOpen]);
 
   const saveSettings = () => {
@@ -33,6 +42,9 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
     localStorage.setItem('IMAGE_STYLE_PREF', imageStyle);
     localStorage.setItem('STRETCH_IMAGE', isStretchImage ? 'true' : 'false');
     localStorage.setItem('IMAGE_GEN_PROVIDER', imageProvider);
+
+    if (onSave) onSave();
+
     onClose();
   };
 
@@ -51,6 +63,24 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
     setIsModelDownloaded(false);
     setModelStatus('Model deleted.');
     setTimeout(() => setModelStatus(''), 3000);
+  };
+
+  const handleDownloadLLM = async () => {
+    try {
+      setLlmStatus("Initializing LLM...");
+      await initLocalLLM((report) => setLlmStatus(report.text));
+      setIsLocalLLMDownloaded(true);
+      setTimeout(() => setLlmStatus(''), 3000);
+    } catch (e: any) {
+      setLlmStatus(`LLM Error: ${e.message}`);
+    }
+  };
+
+  const handleDeleteLLM = async () => {
+    await deleteLLM();
+    setIsLocalLLMDownloaded(false);
+    setLlmStatus('LLM deleted.');
+    setTimeout(() => setLlmStatus(''), 3000);
   };
 
   if (!isOpen) return null;
@@ -90,7 +120,7 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
           </button>
         </div>
 
-        {/* Local Model Manager */}
+        {/* Local Image Model Manager */}
         {imageProvider === 'local' && (
           <div className="mb-4 p-4 border border-outline-variant/30 rounded-lg bg-surface-container/50">
             <h3 className="text-sm font-bold text-on-surface mb-2">Local Image Model Manager</h3>
@@ -108,6 +138,27 @@ export function SettingsModal({ isOpen, onClose }: { isOpen: boolean; onClose: (
               )}
             </div>
             {modelStatus && <p className="text-xs text-primary mt-2 font-mono">{modelStatus}</p>}
+          </div>
+        )}
+
+        {/* Local LLM Manager */}
+        {imageProvider === 'local' && (
+          <div className="mb-4 p-4 border border-outline-variant/30 rounded-lg bg-surface-container/50">
+            <h3 className="text-sm font-bold text-on-surface mb-2">Local LLM Manager (Gemma 2B)</h3>
+            <p className="text-xs text-on-surface-variant mb-4">Used to generate local image prompts. Requires ~1.6GB storage.</p>
+            
+            <div className="flex gap-2">
+              {!isLocalLLMDownloaded ? (
+                <button onClick={handleDownloadLLM} className="flex-1 bg-primary/20 text-primary hover:bg-primary hover:text-on-primary py-2 rounded font-bold text-xs uppercase transition-colors">
+                  Download LLM
+                </button>
+              ) : (
+                <button onClick={handleDeleteLLM} className="flex-1 bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white py-2 rounded font-bold text-xs uppercase transition-colors">
+                  Delete LLM
+                </button>
+              )}
+            </div>
+            {llmStatus && <p className="text-xs text-primary mt-2 font-mono whitespace-pre-wrap">{llmStatus}</p>}
           </div>
         )}
         
