@@ -1,58 +1,55 @@
 // src/localImageEngine.ts
-import { Txt2ImgWorkerClient } from 'web-txt2img';
+import { 
+  detectCapabilities, 
+  loadModel, 
+  isModelLoaded, 
+  generateImage, 
+  purgeAllCaches 
+} from 'web-txt2img';
 import { env, AutoTokenizer } from '@xenova/transformers';
 
-// Prevent the tokenizer from looking for local files, forcing it to pull from Hugging Face Hub
+// Fixes tokenizer loading issues by forcing remote Hugging Face CDN downloads [3, 4]
 env.allowLocalModels = false;
 
 export class ImageGenerator {
-  client: Txt2ImgWorkerClient | null = null;
-
   isModelDownloaded(): boolean {
     return localStorage.getItem('LOCAL_SD_MODEL_CACHED') === 'true';
   }
 
   async setup(onProgress?: (status: string) => void) {
-    if (!this.client) {
-      console.log("[Engine] Creating Txt2ImgWorkerClient...");
-      this.client = Txt2ImgWorkerClient.createDefault();
-    }
-
-    if (onProgress) onProgress("Initializing WebGPU Download...");
+    if (onProgress) onProgress("Checking Hardware (WebGPU)...");
 
     try {
-      // 1. Hardware Check
       console.log("[Engine] Detecting environment capabilities...");
-      const caps = await this.client.detect();
+      
+      // Using Direct API's detectCapabilities [2]
+      const caps = await detectCapabilities();
       console.log("[Engine] Capabilities detected:", caps);
       
       if (!caps.webgpu) {
-        throw new Error("WebGPU is not supported in this browser.");
+        throw new Error("WebGPU is not supported or enabled in this browser.");
       }
 
-      // 2. Load the Model
       console.log("[Engine] Starting model download for 'sd-turbo'...");
-      await this.client.load(
+      
+      /// Using Direct API's loadModel (expects 1-2 arguments)
+      await loadModel(
         'sd-turbo', 
         { 
-          tokenizer: AutoTokenizer 
-        },
-        (progress: any) => {
-          // --- DIAGNOSTIC LOG ---
-          console.log("[Engine] Raw progress event:", progress);
+          // Injecting the Tokenizer directly (using 'any' cast as before)
+          tokenizer: () => AutoTokenizer,
           
-          if (onProgress) {
-            if (progress.pct != null) {
-              onProgress(`Downloading: ${(progress.pct * 100).toFixed(0)}%`);
-            } else if (progress.status || progress.phase) {
-              onProgress(`Status: ${progress.status || progress.phase}...`);
-            } else if (typeof progress === 'string') {
-              onProgress(`Status: ${progress}`);
-            } else {
-              onProgress("Downloading & Caching Model...");
+          // onProgress goes INSIDE the options object in the base API
+          onProgress: (progress: any) => {
+            if (onProgress) {
+              if (progress.pct != null) {
+                onProgress(`Downloading: ${progress.pct.toFixed(0)}%`);
+              } else {
+                onProgress("Downloading & Caching Model...");
+              }
             }
           }
-        }
+        } as any 
       );
       
       console.log("[Engine] Model load complete!");
@@ -61,40 +58,30 @@ export class ImageGenerator {
 
     } catch (err) {
       console.error("[Engine] FATAL ERROR during setup:", err);
-      if (onProgress) onProgress("Download failed! Check console.");
+      if (onProgress) onProgress(`Error: ${err instanceof Error ? err.message : 'Setup failed'}`);
       throw err;
     }
   }
 
-  async deleteModel() {
-    if (this.client) {
-      try {
-        await this.client.unload();
-        await this.client.purgeAll();
-      } catch (err) {
-        console.warn("Error during model purge:", err);
-      }
-    }
-    localStorage.removeItem('LOCAL_SD_MODEL_CACHED');
-  }
-
   async generateImage(promptText: string): Promise<string> {
-    if (!this.client) await this.setup();
+    // Direct API allows us to check loaded state synchronously [2]
+    if (!isModelLoaded('sd-turbo')) {
+      await this.setup();
+    }
 
-    console.log("[Engine] Generating image with prompt:", promptText);
-    
+    console.log("[Engine] Generating image...");
     try {
-      const { promise } = this.client!.generate({ 
+      // Using Direct API's generateImage, which requires the model ID explicitly [2, 6]
+      const result = await generateImage({ 
+        model: 'sd-turbo',
         prompt: promptText,
         seed: Math.floor(Math.random() * 1000000) 
       });
-      const result = await promise;
 
       if (!result.ok || !result.blob) {
-        throw new Error(result.error || "Generation failed.");
+        throw new Error((result as any).reason || "Generation failed.");
       }
 
-      console.log("[Engine] Image generated successfully!");
       return await this.blobToBase64(result.blob);
     } catch (err) {
       console.error("[Engine] Generation error:", err);
@@ -105,16 +92,16 @@ export class ImageGenerator {
   private blobToBase64(blob: Blob): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          resolve(reader.result);
-        } else {
-          reject(new Error("Failed to read Blob as Base64."));
-        }
-      };
+      reader.onloadend = () => resolve(reader.result as string);
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
+  }
+
+  async deleteModel() {
+    // Purges cache directly [2]
+    await purgeAllCaches();
+    localStorage.removeItem('LOCAL_SD_MODEL_CACHED');
   }
 }
 
