@@ -912,8 +912,14 @@ export default function App() {
           <button onClick={() => { setDrawerTab('toc'); setIsDrawerOpen(true); }} title="Table of Contents" className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer">
             <span className="material-symbols-outlined">menu_book</span>
           </button>
-          <button onClick={() => { setDrawerTab('bookmarks'); setIsDrawerOpen(true); }} title="Bookmarks" className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer">
-            <span className="material-symbols-outlined">bookmarks</span>
+          {/* Add/Remove Bookmark Toggle */}
+          <button 
+            onClick={toggleBookmark} 
+            disabled={!currentCfi} 
+            title={isCurrentPageBookmarked ? "Remove Bookmark" : "Add Bookmark"}
+            className={`transition-colors duration-300 p-2 rounded-lg cursor-pointer ${isCurrentPageBookmarked ? 'text-primary bg-primary/10' : 'text-primary hover:bg-surface-container-high'}`}
+          >
+            <span className="material-symbols-outlined">{isCurrentPageBookmarked ? 'bookmark_added' : 'bookmark_add'}</span>
           </button>
           <button onClick={() => { setDrawerTab('gallery'); setIsDrawerOpen(true); }} title="Image Gallery" className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer hidden md:block">
             <span className="material-symbols-outlined">photo_library</span>
@@ -1048,9 +1054,9 @@ export default function App() {
           <button onClick={() => prevPage()} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group active:bg-primary/20">
             <span className="material-symbols-outlined text-[20px] md:text-3xl font-light transform group-active:-translate-x-1 transition-transform">chevron_left</span>
           </button>
-          <button onClick={toggleBookmark} disabled={!currentCfi}
-            className={`w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all cursor-pointer group ${isCurrentPageBookmarked ? 'bg-primary text-on-primary' : 'hover:bg-surface-variant hover:text-primary'}`}>
-            <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">{isCurrentPageBookmarked ? 'bookmark_added' : 'bookmark_add'}</span>
+          <button onClick={() => { setDrawerTab('bookmarks'); setIsDrawerOpen(true); }}
+            className={`w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all cursor-pointer group hover:bg-surface-variant hover:text-primary`}>
+            <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">bookmarks</span>
           </button>
           <button onClick={() => nextPage()} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group active:bg-primary/20">
             <span className="material-symbols-outlined text-[20px] md:text-3xl font-light transform group-active:translate-x-1 transition-transform">chevron_right</span>
