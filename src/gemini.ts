@@ -6,6 +6,34 @@ const getClient = () => {
   return new GoogleGenAI({ apiKey: key });
 };
 
+export async function mergeCharacterProfiles(oldProfile: string, newProfile: string): Promise<string> {
+   const ai = getClient();
+   const prompt = `You are a meticulous Story Editor. You have an existing character biography and a new set of facts extracted from a recent chapter. 
+   Merge them into a single, cohesive, concise paragraph. 
+   - Remove redundancies and duplicate information.
+   - Maintain a consistent, factual tone.
+   - Do NOT invent or hallucinate any new details. Only use the provided facts.
+   
+   Existing Biography:
+   "${oldProfile}"
+
+   New Facts to Integrate:
+   "${newProfile}"
+   
+   Output ONLY the merged biography text. No preamble, no quotes.`;
+   
+   try {
+       const response = await ai.models.generateContent({ 
+           model: 'gemini-2.5-flash', 
+           contents: prompt 
+       });
+       return response.text?.trim() || `${oldProfile}. ${newProfile}`;
+   } catch (error) {
+       console.error("Error merging character profiles:", error);
+       throw error; // Let the caller handle the fallback
+   }
+}
+
 export async function generateAmbientImage(promptContext: string, characterContext?: string): Promise<string> {
   const ai = getClient();
   

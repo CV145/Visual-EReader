@@ -3,6 +3,7 @@
  * All per-book data is stored under keys scoped to a unique bookId (UUID).
  */
 import localforage from 'localforage';
+import { mergeCharacterProfiles } from './gemini';
 
 export interface BookMeta {
   id: string;
@@ -149,18 +150,34 @@ export const upsertCharacter = async (bookId: string, incoming: CharacterProfile
   const idx = existing.findIndex(c => c.name.toLowerCase() === incoming.name.toLowerCase());
   
   if (idx >= 0) {
-    // ACCUMULATE: append new details rather than replacing
     const old = existing[idx];
     
-    // Merge Appearance
+    // 1. Merge Appearance (Keep this as simple append, appearance usually stays static)
     const newDesc = (incoming.description || '').trim();
     const oldDesc = (old.description || '').trim();
     const combinedDesc = oldDesc.includes(newDesc) || !newDesc ? oldDesc : `${oldDesc}${oldDesc ? '. ' : ''}${newDesc}`;
     
-    // Merge Lore/Profile
+    // 2. Merge Lore/Profile (Use AI Synthesizer)
     const newProfile = (incoming.profile || '').trim();
     const oldProfile = (old.profile || '').trim();
-    const combinedProfile = oldProfile.includes(newProfile) || !newProfile ? oldProfile : `${oldProfile}${oldProfile ? '. ' : ''}${newProfile}`;
+    
+    let combinedProfile = oldProfile;
+    
+    // Only synthesize if there is new info that isn't already directly in the old string
+    if (newProfile && !oldProfile.includes(newProfile)) {
+      if (oldProfile) {
+         try {
+             // Ask Gemini to synthesize the lore
+             combinedProfile = await mergeCharacterProfiles(oldProfile, newProfile);
+         } catch (e) {
+             // Fallback to safe append if the API call fails or is rate-limited
+             console.warn("AI Lore Merge failed, falling back to append.", e);
+             combinedProfile = `${oldProfile}. ${newProfile}`;
+         }
+      } else {
+         combinedProfile = newProfile;
+      }
+    }
 
     existing[idx] = { 
       ...old, 
@@ -172,6 +189,7 @@ export const upsertCharacter = async (bookId: string, incoming: CharacterProfile
     // Brand new character — add them
     existing.push(incoming);
   }
+  
   await saveCharacters(bookId, existing);
   return existing;
 };

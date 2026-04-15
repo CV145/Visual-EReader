@@ -126,7 +126,7 @@ export default function App() {
   // ─── Drawer ───────────────────────────────────────────────────────────────
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isSummaryVisible, setIsSummaryVisible] = useState(true);
-  const [drawerTab, setDrawerTab] = useState<'toc' | 'bookmarks' | 'gallery' | 'characters' | 'genre' | 'summary'>('toc');
+  const [drawerTab, setDrawerTab] = useState<'toc' | 'bookmarks' | 'gallery' | 'characters' | 'search'>('toc');
   const [tocItems, setTocItems] = useState<any[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [gallery, setGallery] = useState<GalleryImage[]>([]);
@@ -150,6 +150,12 @@ export default function App() {
 
   const [persistentSummary, setPersistentSummary] = useState("");
   const [isSceneControlsVisible, setIsSceneControlsVisible] = useState(true);
+
+  // ─── Search State ─────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<{ cfi: string, excerpt: string, chapter: string }[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchProgress, setSearchProgress] = useState(0);
 
   // ─── Settings Load ────────────────────────────────────────────────────────
   const loadSettings = () => {
@@ -436,6 +442,14 @@ export default function App() {
                       } else forcedIndex = 0;
                       pendingTocHref.current = null;
                     }
+                    
+                    if (!targetElement && pendingCfi.current) {
+                      try {
+                        const r = renditionRef.current.getRange(pendingCfi.current);
+                        if (r) targetElement = r.startContainer;
+                      } catch (e) { console.error("Could not resolve CFI to node:", e); }
+                    }
+
                     if (!targetElement && forcedIndex === null && !pendingCfi.current) forcedIndex = 0;
 
                     const rawElements = activeDoc.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
@@ -716,6 +730,64 @@ export default function App() {
     await saveCharacters(activeBook.id, updated);
   };
 
+  // ─── Search Logic ─────────────────────────────────────────────────────────
+  const performSearch = async (query: string) => {
+    if (!query || !bookRef.current || isSearching) return;
+    setIsSearching(true);
+    setSearchProgress(0);
+    setSearchResults([]);
+
+    const results: { cfi: string, excerpt: string, chapter: string }[] = [];
+    const spine = bookRef.current.spine;
+    const total = spine.length;
+
+    try {
+      for (let i = 0; i < total; i++) {
+        const section = spine.get(i);
+        if (!section) continue;
+
+        // Load content to search
+        await section.load(bookRef.current.load.bind(bookRef.current));
+        const matches = section.find(query);
+        
+        // Find chapter title for this section
+        const toc = bookRef.current.navigation?.toc;
+        const findChapterLabel = (items: any[], href: string): string => {
+          for (const item of items) {
+            if (href.includes(item.href)) return item.label;
+            if (item.subitems) {
+              const label = findChapterLabel(item.subitems, href);
+              if (label) return label;
+            }
+          }
+          return '';
+        };
+        const chapterLabel = findChapterLabel(toc || [], section.href) || `Chapter ${i + 1}`;
+
+        matches.forEach((m: any) => {
+          results.push({
+            cfi: m.cfi,
+            excerpt: m.excerpt,
+            chapter: chapterLabel
+          });
+        });
+
+        section.unload();
+        setSearchProgress(Math.round(((i + 1) / total) * 100));
+        
+        // Yield to UI thread every few chapters
+        if (i % 5 === 0) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+    } catch (err) {
+      console.error("Search error:", err);
+    } finally {
+      setSearchResults(results);
+      setIsSearching(false);
+    }
+  };
+
   // ─── Library View ─────────────────────────────────────────────────────────
   if (!activeBook) {
     return <LibraryPage onOpenBook={openBook} />;
@@ -930,6 +1002,9 @@ export default function App() {
           <button onClick={() => { setDrawerTab('gallery'); setIsDrawerOpen(true); }} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group" title="Gallery">
             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">photo_library</span>
           </button>
+          <button onClick={() => { setDrawerTab('search'); setIsDrawerOpen(true); }} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group" title="Search Book">
+            <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">search</span>
+          </button>
         </div>
         <div className="flex items-center gap-2 bg-surface-variant/40 rounded-full px-2 py-1 border border-outline-variant/20 mx-2 md:mx-4">
           <button onClick={() => setFontSize(f => Math.max(50, f - 10))} disabled={!bookLoaded} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-surface-variant hover:text-primary transition-all cursor-pointer">
@@ -970,7 +1045,7 @@ export default function App() {
           <div className="relative w-[85vw] max-w-sm h-full bg-surface-container-high border-r border-outline-variant/20 shadow-2xl flex flex-col animate-in slide-in-from-left duration-300 overflow-hidden">
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <h2 className="text-lg font-headline font-bold text-on-surface uppercase tracking-wider">
-                {drawerTab === 'toc' ? 'Contents' : drawerTab === 'bookmarks' ? 'Bookmarks' : drawerTab === 'gallery' ? 'Gallery' : 'Characters'}
+                {drawerTab === 'toc' ? 'Contents' : drawerTab === 'bookmarks' ? 'Bookmarks' : drawerTab === 'gallery' ? 'Gallery' : drawerTab === 'search' ? 'Search Book' : 'Characters'}
               </h2>
               <button onClick={() => setIsDrawerOpen(false)} className="text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
                 <span className="material-symbols-outlined">close</span>
@@ -979,29 +1054,79 @@ export default function App() {
 
             {/* Tabs */}
             <div className="flex border-b border-outline-variant/20 px-2">
-              {(['toc', 'bookmarks', 'gallery', 'characters', 'genre', 'summary'] as const).map(tab => (
+              {(['search', 'toc', 'bookmarks', 'gallery', 'characters'] as const).map(tab => (
                 <button key={tab} onClick={() => setDrawerTab(tab)}
                   className={`flex-1 pb-3 pt-1 text-[8px] sm:text-[10px] font-label font-bold uppercase tracking-widest text-center transition-colors cursor-pointer ${drawerTab === tab ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'}`}>
-                  {tab === 'toc' ? 'Chapters' : tab === 'characters' ? 'Cast' : tab === 'genre' ? 'Audio' : tab === 'summary' ? 'Summary' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  {tab === 'search' ? 'Search' : tab === 'toc' ? 'Chapters' : tab === 'characters' ? 'Cast' : tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
               ))}
             </div>
 
             <div className="flex-1 overflow-y-auto px-2 py-3">
-            {/* Summary */}
-              {drawerTab === 'summary' && (
+              {/* Search */}
+              {drawerTab === 'search' && (
                 <div className="px-1 py-2">
-                  <p className="text-xs text-on-surface-variant mb-4 px-2 leading-relaxed">
-                    Generate a quick recap of the previous 25 paragraphs using your local AI model.
-                  </p>
-                  <SummarizerMVP 
-                    paragraphs={vnParagraphs.slice(Math.max(0, activeParagraphIndex - 25), activeParagraphIndex).map(p => p.text)} 
-                    existingSummary={persistentSummary}
-                    onSummaryGenerated={setPersistentSummary}
-                    bookId={activeBook.id}
-                  />
+                  <div className="relative mb-6">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && performSearch(searchQuery)}
+                      placeholder="Search entire book..."
+                      className="w-full bg-surface-container border border-outline-variant/30 rounded-full px-5 py-3 pr-12 text-sm text-on-surface focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all placeholder:text-on-surface-variant/40"
+                    />
+                    <button 
+                      onClick={() => performSearch(searchQuery)}
+                      disabled={isSearching || !searchQuery.trim()}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center bg-primary text-on-primary rounded-full hover:bg-primary-container hover:text-on-primary-container transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-sm">{isSearching ? 'progress_activity' : 'search'}</span>
+                    </button>
+                  </div>
+
+                  {isSearching && (
+                    <div className="mb-6 px-2">
+                      <div className="h-1 w-full bg-surface-container-highest rounded-full overflow-hidden">
+                        <div className="h-full bg-primary transition-all duration-300" style={{ width: `${searchProgress}%` }}></div>
+                      </div>
+                      <p className="text-[10px] text-center mt-2 text-on-surface-variant font-label uppercase tracking-widest">Searching... {searchProgress}%</p>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {searchResults.length === 0 && !isSearching && searchQuery && (
+                      <p className="text-on-surface-variant text-sm text-center py-8">No results found for "{searchQuery}"</p>
+                    )}
+                    {searchResults.length === 0 && !isSearching && !searchQuery && (
+                      <div className="text-on-surface-variant text-sm text-center py-8 px-4 leading-relaxed">
+                        <span className="material-symbols-outlined text-3xl block mb-2 opacity-30">find_in_page</span>
+                        Search for a word or phrase to find every instance in the book.
+                      </div>
+                    )}
+                    {searchResults.map((result, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          pendingCfi.current = result.cfi;
+                          renditionRef.current?.display(result.cfi);
+                          setIsDrawerOpen(false);
+                        }}
+                        className="w-full text-left bg-surface-container/30 hover:bg-surface-container-highest border border-outline-variant/10 hover:border-primary/30 rounded-xl p-3 transition-all cursor-pointer group"
+                      >
+                        <div className="flex justify-between items-start mb-1.5">
+                          <span className="text-[10px] font-bold text-primary uppercase tracking-widest truncate max-w-[70%]">{result.chapter}</span>
+                          <span className="material-symbols-outlined text-xs text-on-surface-variant group-hover:text-primary transition-colors">arrow_forward</span>
+                        </div>
+                        <p className="text-xs text-on-surface-variant leading-relaxed font-body italic line-clamp-3" 
+                           dangerouslySetInnerHTML={{ __html: result.excerpt.replace(new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<mark class="bg-primary/30 text-primary px-0.5 rounded">$1</mark>') }}>
+                        </p>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
+
+
 
 
               {/* TOC */}
@@ -1114,76 +1239,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* Genre / Audio Settings */}
-              {drawerTab === 'genre' && activeBook && (
-                <div className="px-4 py-6 flex flex-col gap-4 animate-in fade-in duration-300">
-                  <h3 className="text-sm font-headline font-bold text-on-surface uppercase tracking-widest">Soundtrack Anchor</h3>
-                  <p className="text-xs text-on-surface-variant font-body leading-relaxed">
-                    Set the core musical genre for this book (e.g., Cyberpunk, Ambient Fantasy, Western). 
-                    The Lyria audio engine uses this to dynamically steer the continuous background score.
-                  </p>
-                  <input
-                    type="text"
-                    defaultValue={activeBook.anchorGenre || ''}
-                    placeholder="Cinematic Instrumental"
-                    className="w-full bg-surface-container border border-outline-variant/30 rounded-lg px-4 py-3 text-sm text-on-surface focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
-                    onBlur={async (e) => {
-                      const val = e.target.value.trim() || 'Cinematic Instrumental';
-                      if (val !== activeBook.anchorGenre) {
-                        const updatedMeta = { ...activeBook, anchorGenre: val };
-                        await addBookToLibrary(updatedMeta);
-                        setActiveBook(updatedMeta);
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.currentTarget.blur();
-                      }
-                    }}
-                  />
 
-                  {/* --- NEW SCENE PROMPT SECTION --- */}
-                  <div className="mt-4 border-t border-outline-variant/30 pt-6">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-sm font-headline font-bold text-on-surface uppercase tracking-widest">Scene Prompt</h3>
-                      <div className="flex gap-2 items-center">
-                        <button 
-                          onClick={handleGenerateAudioPrompt}
-                          disabled={isGeneratingPrompt}
-                          className="text-[11px] flex items-center gap-1.5 bg-surface-variant hover:bg-surface-container-highest text-on-surface px-3 py-1.5 rounded-md transition-colors cursor-pointer font-bold uppercase tracking-wider disabled:opacity-50"
-                        >
-                          {isGeneratingPrompt ? (
-                            <span className="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>
-                          ) : (
-                            <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
-                          )}
-                          Generate
-                        </button>
-                        <button 
-                          onClick={() => {
-                            if (currentAudioPrompt) navigator.clipboard.writeText(currentAudioPrompt);
-                          }}
-                          disabled={!currentAudioPrompt}
-                          className="text-[11px] flex items-center gap-1.5 bg-primary/20 hover:bg-primary hover:text-on-primary text-primary px-3 py-1.5 rounded-md transition-colors cursor-pointer font-bold uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Copy to Clipboard"
-                        >
-                          <span className="material-symbols-outlined text-[14px]">content_copy</span> Copy
-                        </button>
-                      </div>
-                    </div>
-                    <p className="text-[11px] text-on-surface-variant mb-3 leading-relaxed">
-                      Analyze the next 100 paragraphs to generate a prompt, then copy it to create a high-fidelity track in Google AI Studio.
-                    </p>
-                    <textarea
-                      readOnly
-                      value={currentAudioPrompt || (isGeneratingPrompt ? "Analyzing scene..." : "Click 'Generate' to analyze the current scene...")}
-                      className="w-full h-32 bg-surface-container-highest border border-outline-variant/20 rounded-lg p-3 text-xs font-mono text-on-surface-variant resize-none focus:outline-none focus:border-primary/50 transition-colors"
-                    />
-                  </div>
-                  {/* -------------------------------- */}
-
-                </div>
-              )}
             </div>
           </div>
         </div>
