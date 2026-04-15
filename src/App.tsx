@@ -232,6 +232,10 @@ export default function App() {
     loadSettings();
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input or textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+
       if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); advanceVnDialogue(); }
       if (e.key === 'ArrowLeft') { e.preventDefault(); previousVnDialogue(); }
       if (e.key === 'ArrowUp') { e.preventDefault(); vnTextBoxRef.current?.scrollBy({ top: -40, behavior: 'smooth' }); }
@@ -455,17 +459,39 @@ export default function App() {
                     const rawElements = activeDoc.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
 
                     const resolveTargetIndex = (graphRef: VnParagraph[]) => {
-                      if (pendingCfi.current) {
-                        const explicitIdx = pendingBookmarkIndex.current;
-                        pendingCfi.current = null; pendingBookmarkIndex.current = null;
-                        if (explicitIdx !== null && explicitIdx !== undefined) {
-                          const mappedIdx = explicitIdx - 1;
-                          if (mappedIdx >= 0 && mappedIdx < graphRef.length) return mappedIdx;
-                        }
-                        return 0;
+                      if (pendingBookmarkIndex.current !== null && pendingBookmarkIndex.current !== undefined) {
+                        const mappedIdx = pendingBookmarkIndex.current - 1;
+                        pendingBookmarkIndex.current = null;
+                        pendingCfi.current = null;
+                        if (mappedIdx >= 0 && mappedIdx < graphRef.length) return mappedIdx;
                       }
+                      
+                      const targetCfi = pendingCfi.current;
+                      if (targetCfi) {
+                        pendingCfi.current = null;
+                        // Robust CFI-based lookup
+                        let bestIdx = 0;
+                        try {
+                          const epubCfi = new ePub.CFI();
+                          for (let i = 0; i < graphRef.length; i++) {
+                            // If P[i].cfi <= targetCfi, it's a potential match. 
+                            // We want the LAST one that is <= targetCfi.
+                            if (epubCfi.compare(graphRef[i].cfi, targetCfi) <= 0) {
+                              bestIdx = i;
+                            } else {
+                              // Since paragraphs are ordered, once we find one AFTER the target, we stop.
+                              break;
+                            }
+                          }
+                          return bestIdx;
+                        } catch (e) {
+                          console.warn("CFI Comparison failed, falling back to DOM:", e);
+                        }
+                      }
+
                       if (forcedIndex !== null) return forcedIndex;
                       if (!targetElement) return 0;
+                      
                       let matchedIdx = 0, found = false, idxCount = 0;
                       rawElements.forEach(el => {
                         const txt = el.textContent?.trim();
