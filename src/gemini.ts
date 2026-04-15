@@ -6,32 +6,46 @@ const getClient = () => {
   return new GoogleGenAI({ apiKey: key });
 };
 
-export async function mergeCharacterProfiles(oldProfile: string, newProfile: string): Promise<string> {
-   const ai = getClient();
-   const prompt = `You are a meticulous Story Editor. You have an existing character biography and a new set of facts extracted from a recent chapter. 
-   Merge them into a single, cohesive, concise paragraph. 
-   - Remove redundancies and duplicate information.
-   - Maintain a consistent, factual tone.
-   - Do NOT invent or hallucinate any new details. Only use the provided facts.
-   
-   Existing Biography:
-   "${oldProfile}"
+export async function consolidateCharacterProfiles(
+  oldData: { description: string; profile: string },
+  newData: { description: string; profile: string }
+): Promise<{ description: string; profile: string }> {
+  const ai = getClient();
+  const prompt = `You are a meticulous Story Editor. You have an existing character record and new details from a recent chapter. 
+  Consolidate them into a single, cohesive character profile.
+  - Merge the physical descriptions into one concise, consistent appearance summary.
+  - Merge the biographical lore and roles into one cohesive narrative summary.
+  - Remove all redundancies and duplicate facts.
+  - Do NOT invent new details.
+  
+  EXISTING RECORD:
+  Physical Appearance: "${oldData.description}"
+  Biography/Lore: "${oldData.profile}"
 
-   New Facts to Integrate:
-   "${newProfile}"
-   
-   Output ONLY the merged biography text. No preamble, no quotes.`;
-   
-   try {
-       const response = await ai.models.generateContent({ 
-           model: 'gemini-2.5-flash', 
-           contents: prompt 
-       });
-       return response.text?.trim() || `${oldProfile}. ${newProfile}`;
-   } catch (error) {
-       console.error("Error merging character profiles:", error);
-       throw error; // Let the caller handle the fallback
-   }
+  NEW DETAILS TO INTEGRATE:
+  Physical Appearance: "${newData.description}"
+  Biography/Lore: "${newData.profile}"
+  
+  Output ONLY a valid JSON object with "description" and "profile" fields. No preamble, no markdown code blocks.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt
+    });
+    const raw = (response.text || '').trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    const parsed = JSON.parse(raw);
+    return {
+      description: parsed.description || `${oldData.description}. ${newData.description}`.trim(),
+      profile: parsed.profile || `${oldData.profile}. ${newData.profile}`.trim()
+    };
+  } catch (error) {
+    console.error("Error consolidating character profiles:", error);
+    return {
+      description: `${oldData.description}${newData.description ? '. ' + newData.description : ''}`.trim(),
+      profile: `${oldData.profile}${newData.profile ? '. ' + newData.profile : ''}`.trim()
+    };
+  }
 }
 
 export async function generateAmbientImage(promptContext: string, characterContext?: string): Promise<string> {
