@@ -17,6 +17,8 @@ export async function consolidateCharacterProfiles(
   - Merge the biographical lore and roles into one cohesive narrative summary.
   - Remove all redundancies and duplicate facts.
   - Do NOT invent new details.
+  - EXTREMELY IMPORTANT: The finalized "description" MUST BE STRICTLY UNDER 250 WORDS.
+  - EXTREMELY IMPORTANT: The finalized "profile" MUST BE STRICTLY UNDER 250 WORDS.
   
   EXISTING RECORD:
   Physical Appearance: "${oldData.description}"

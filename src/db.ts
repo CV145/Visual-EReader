@@ -3,7 +3,7 @@
  * All per-book data is stored under keys scoped to a unique bookId (UUID).
  */
 import localforage from 'localforage';
-import { mergeCharacterProfiles } from './gemini';
+import { consolidateCharacterProfiles } from './gemini';
 
 export interface BookMeta {
   id: string;

@@ -605,8 +605,8 @@ export default function App() {
   const handleGenerate = async () => {
     if (!activeBook) { alert("Please open a book first!"); return; }
     
-    // Pass the next 25 paragraphs from the current one as context
-    const contextForImage = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 25).map(p => p.text).join('\n');
+    // Pass the next 50 paragraphs from the current one as context
+    const contextForImage = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 50).map(p => p.text).join('\n');
     if (!contextForImage) { alert("Please read a few pages first!"); return; }
 
     setIsLoadingImage(true);
