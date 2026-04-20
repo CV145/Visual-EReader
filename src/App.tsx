@@ -437,17 +437,7 @@ export default function App() {
                     let targetElement: Node | null = null;
                     let forcedIndex: number | null = null;
 
-                    if (pendingTocHref.current) {
-                      const hashSplit = pendingTocHref.current.split('#');
-                      const anchorId = hashSplit.length > 1 ? hashSplit[1] : null;
-                      if (anchorId) {
-                        const explicitNode = activeDoc.querySelector(`[id="${anchorId}"], a[name="${anchorId}"]`);
-                        if (explicitNode) targetElement = explicitNode; else forcedIndex = 0;
-                      } else forcedIndex = 0;
-                      pendingTocHref.current = null;
-                    }
-                    
-                    if (!targetElement && pendingCfi.current) {
+                    if (pendingCfi.current) {
                       try {
                         const r = renditionRef.current.getRange(pendingCfi.current);
                         if (r) targetElement = r.startContainer;
@@ -469,17 +459,13 @@ export default function App() {
                       const targetCfi = pendingCfi.current;
                       if (targetCfi) {
                         pendingCfi.current = null;
-                        // Robust CFI-based lookup
                         let bestIdx = 0;
                         try {
                           const epubCfi = new ePub.CFI();
                           for (let i = 0; i < graphRef.length; i++) {
-                            // If P[i].cfi <= targetCfi, it's a potential match. 
-                            // We want the LAST one that is <= targetCfi.
                             if (epubCfi.compare(graphRef[i].cfi, targetCfi) <= 0) {
                               bestIdx = i;
                             } else {
-                              // Since paragraphs are ordered, once we find one AFTER the target, we stop.
                               break;
                             }
                           }
@@ -517,7 +503,6 @@ export default function App() {
                         if (txt && txt.length > 5) {
                           const nativeCfi = correctContents.cfiFromNode(element);
                           if (nativeCfi) {
-                            // Safely grab the raw HTML without forcing a layout recalculation
                             chapterGraph.push({ 
                                 text: txt, 
                                 cfi: nativeCfi, 
@@ -565,10 +550,77 @@ export default function App() {
   const nextPage = advanceVnDialogue;
   const prevPage = previousVnDialogue;
 
-  const navigateToHref = (href: string) => {
-    pendingTocHref.current = href;
-    renditionRef.current?.display(href);
+  const navigateToHref = async (href: string) => {
+    if (!renditionRef.current || !bookRef.current) return;
     setIsDrawerOpen(false);
+
+    // Tell epub.js to load the chapter, then set isInternalVnNavigation
+    // so the relocated handler doesn't interfere.
+    isInternalVnNavigation.current = true;
+    await renditionRef.current.display(href);
+
+    // After epub.js finishes loading, directly grab the chapter's document
+    // and build our paragraph graph from it. No relying on relocated.
+    try {
+      const targetFileBase = href.split('#')[0].split('/').pop() || '';
+      const allContents = renditionRef.current?.getContents() || [];
+
+      // Find the loaded document matching the requested chapter file
+      const targetContents = allContents.find((c: any) => {
+        const docUrl = c.document?.URL || c.document?.baseURI || '';
+        return docUrl.includes(targetFileBase);
+      });
+
+      if (!targetContents?.document) {
+        console.warn('[TOC] Could not find document for', href, '— falling back to relocated handler.');
+        isInternalVnNavigation.current = false; // Let relocated handle it
+        return;
+      }
+
+      const activeDoc = targetContents.document;
+      const rawElements = activeDoc.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
+      const chapterGraph: VnParagraph[] = [];
+
+      rawElements.forEach((element: Element) => {
+        const txt = element.textContent?.trim();
+        if (txt && txt.length > 5) {
+          const nativeCfi = targetContents.cfiFromNode(element);
+          if (nativeCfi) {
+            chapterGraph.push({ text: txt, cfi: nativeCfi, html: element.innerHTML });
+          }
+        }
+      });
+
+      if (chapterGraph.length > 0) {
+        // Update spine tracking
+        const spineFile = href.split('#')[0];
+        lastSpineHrefRef.current = bookRef.current.spine.get(spineFile)?.href || spineFile;
+
+        // Update chapter title
+        const toc = bookRef.current.navigation?.toc;
+        if (toc) {
+          const findCh = (items: any[], h: string): any => {
+            for (const item of items) {
+              if (h.includes(item.href) || item.href.includes(h)) return item;
+              if (item.subitems) { const sub = findCh(item.subitems, h); if (sub) return sub; }
+            }
+            return null;
+          };
+          const ch = findCh(toc, spineFile);
+          if (ch) setChapterTitle(ch.label);
+        }
+
+        setVnParagraphs(chapterGraph);
+        setActiveParagraphIndex(0);
+
+        // Sync epub.js rendition to paragraph 0's CFI
+        isInternalVnNavigation.current = true;
+        renditionRef.current?.display(chapterGraph[0].cfi);
+      }
+    } catch (err) {
+      console.error('[TOC] Error building chapter graph:', err);
+      isInternalVnNavigation.current = false;
+    }
   };
 
   const navigateToBookmark = (bm: Bookmark) => {
