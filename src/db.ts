@@ -186,3 +186,70 @@ export const upsertCharacter = async (bookId: string, incoming: CharacterProfile
   await saveCharacters(bookId, existing);
   return existing;
 };
+
+export const upsertCharactersBulk = async (bookId: string, incomings: CharacterProfile[]): Promise<CharacterProfile[]> => {
+  const existing = await loadCharacters(bookId);
+
+  // Filter out invalid ones, format names to FIRST NAME ONLY
+  const valids = incomings
+    .filter(inc => inc.name.trim() && (inc.description?.trim() || inc.profile?.trim()))
+    .map(inc => ({
+      ...inc,
+      name: inc.name.trim().split(/\s+/)[0]
+    }));
+
+  if (valids.length === 0) return existing;
+
+  // Process consolidations concurrently
+  const consolidationPromises = valids.map(async (incoming) => {
+    const idx = existing.findIndex(c => c.name.toLowerCase() === incoming.name.toLowerCase());
+
+    if (idx >= 0) {
+      const old = existing[idx];
+      const oldData = { description: old.description || '', profile: old.profile || '' };
+      const newData = { description: incoming.description || '', profile: incoming.profile || '' };
+
+      let consolidated = oldData;
+
+      // Only consolidate if there is actually new info to add
+      if ((newData.description && !oldData.description.includes(newData.description)) || 
+          (newData.profile && !oldData.profile.includes(newData.profile))) {
+        try {
+          consolidated = await consolidateCharacterProfiles(oldData, newData);
+        } catch (e) {
+          console.warn("AI Consolidation failed, falling back to safe append.", e);
+          consolidated = {
+            description: `${oldData.description}${newData.description ? '. ' + newData.description : ''}`.trim(),
+            profile: `${oldData.profile}${newData.profile ? '. ' + newData.profile : ''}`.trim()
+          };
+        }
+      }
+
+      return {
+        idx,
+        profile: {
+          ...old,
+          description: consolidated.description,
+          profile: consolidated.profile,
+          updatedAt: incoming.updatedAt
+        }
+      };
+    } else {
+      return { idx: -1, profile: incoming };
+    }
+  });
+
+  const results = await Promise.all(consolidationPromises);
+
+  // Apply updates sequentially after all AI calls have resolved
+  results.forEach(({ idx, profile }) => {
+    if (idx >= 0) {
+      existing[idx] = profile;
+    } else {
+      existing.push(profile);
+    }
+  });
+
+  await saveCharacters(bookId, existing);
+  return existing;
+};

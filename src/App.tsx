@@ -15,7 +15,7 @@ import {
   loadLocation, saveLocation,
   loadBookmarks, saveBookmarks,
   loadGallery, saveGallery,
-  loadCharacters, saveCharacters, upsertCharacter,
+  loadCharacters, saveCharacters, upsertCharacter, upsertCharactersBulk,
   loadSummary, saveSummary
 } from './db';
 
@@ -700,12 +700,12 @@ export default function App() {
         // If generating "Character Portraits", immediately evaluate profiles before image generation
         if (stylePref === 'character-portraits') {
           const extracted = await extractCharacterProfiles(contextForImage);
-          let latest = await loadCharacters(activeBook.id);
           
-          for (const char of extracted) {
-            const profile: CharacterProfile = { name: char.name, description: char.description, profile: char.profile, updatedAt: Date.now() };
-            latest = await upsertCharacter(activeBook.id, profile);
-          }
+          const profilesToUpsert: CharacterProfile[] = extracted.map(char => ({
+            name: char.name, description: char.description, profile: char.profile, updatedAt: Date.now()
+          }));
+          
+          const latest = await upsertCharactersBulk(activeBook.id, profilesToUpsert);
           setCharacters(latest);
           
           const extractedNames = extracted.map(e => e.name.toLowerCase());
@@ -722,12 +722,12 @@ export default function App() {
         if (stylePref !== 'character-portraits') {
           extractCharacterProfiles(contextForImage).then(async (extracted) => {
             if (extracted.length === 0 || !activeBook) return;
-            let latest = await loadCharacters(activeBook.id);
-            for (const char of extracted) {
-              // ---> ADD char.profile HERE
-              const profile: CharacterProfile = { name: char.name, description: char.description, profile: char.profile, updatedAt: Date.now() };
-              latest = await upsertCharacter(activeBook.id, profile);
-            }
+            
+            const profilesToUpsert: CharacterProfile[] = extracted.map(char => ({
+              name: char.name, description: char.description, profile: char.profile, updatedAt: Date.now()
+            }));
+            
+            const latest = await upsertCharactersBulk(activeBook.id, profilesToUpsert);
             setCharacters(latest);
           });
         }
