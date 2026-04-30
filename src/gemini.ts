@@ -220,3 +220,73 @@ export async function extractCharacterProfiles(paragraphsText: string): Promise<
        return [];
    }
 }
+
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  answerIndex: number;
+}
+
+export interface Quiz {
+  questions: QuizQuestion[];
+}
+
+export async function generateQuiz(contextText: string): Promise<Quiz> {
+  const ai = getClient();
+  const prompt = `You are a Reading Comprehension Teacher. Based on the following story excerpt, generate a 3-question multiple-choice quiz.
+  The questions should test the reader's understanding of the events, character motivations, or key details that occurred in this specific excerpt.
+  Each question MUST have exactly 4 options.
+  Indicate the correct answer using a 0-based index (0, 1, 2, or 3).
+  Output ONLY a valid JSON object matching this schema:
+  {
+    "questions": [
+      {
+        "question": "Question text here?",
+        "options": ["Option A", "Option B", "Option C", "Option D"],
+        "answerIndex": 0
+      }
+    ]
+  }
+  Do not include any other text, preamble, or markdown formatting outside the JSON object.
+
+  Story Excerpt:
+  "${contextText}"`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+    });
+
+    const raw = (response.text || '{}').trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    const parsed = JSON.parse(raw);
+    
+    if (parsed && Array.isArray(parsed.questions) && parsed.questions.length === 3) {
+      return parsed as Quiz;
+    } else {
+      throw new Error("Invalid quiz format returned by AI.");
+    }
+  } catch (error) {
+    console.error("Error generating quiz:", error);
+    // Fallback simple quiz if AI fails, so it doesn't break the app completely
+    return {
+      questions: [
+        {
+          question: "What just happened in the story?",
+          options: ["I don't know", "Something exciting", "Nothing", "A character spoke"],
+          answerIndex: 1
+        },
+        {
+          question: "Who is the main character in this section?",
+          options: ["A mysterious stranger", "The protagonist", "A villain", "Nobody"],
+          answerIndex: 1
+        },
+        {
+          question: "How did the scene end?",
+          options: ["On a cliffhanger", "Peacefully", "In a battle", "With a revelation"],
+          answerIndex: 0
+        }
+      ]
+    };
+  }
+}
