@@ -97,7 +97,7 @@ function QuizModal({
       <div className="bg-surface-container/90 border border-outline-variant/30 rounded-2xl shadow-2xl p-6 w-full max-w-lg flex flex-col gap-4 text-on-surface">
         {quizState === 'generating' && (
           <div className="text-center py-8">
-            <h2 className="text-xl font-display font-bold text-primary mb-2">Analyzing Last 50 Paragraphs...</h2>
+            <h2 className="text-xl font-display font-bold text-primary mb-2">Analyzing Last 25 Paragraphs...</h2>
             <p className="text-on-surface-variant text-sm">Generating a comprehension quiz to test your memory.</p>
           </div>
         )}
@@ -140,13 +140,13 @@ function QuizModal({
           <div className="text-center py-8 flex flex-col gap-4">
             <h2 className="text-2xl font-display font-bold text-red-400">Quiz Failed</h2>
             <p className="text-on-surface-variant text-sm leading-relaxed">
-              You got less than 2 questions correct. You must re-read the last 50 paragraphs before continuing.
+              You got less than 2 questions correct. You must re-read the last 25 paragraphs before continuing.
             </p>
             <button
               onClick={onAcknowledgeFail}
               className="mt-4 bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/50 px-6 py-3 rounded-lg font-bold transition-colors uppercase tracking-widest text-sm"
             >
-              Rewind 50 Paragraphs
+              Rewind 25 Paragraphs
             </button>
           </div>
         )}
@@ -251,7 +251,7 @@ export default function App() {
   const [quizFeedback, setQuizFeedback] = useState<{isCorrect: boolean, msg: string} | null>(null);
 
   useEffect(() => {
-    if (readingHistory.length === 50 && quizStateRef.current === 'inactive') {
+    if (readingHistory.length === 25 && quizStateRef.current === 'inactive') {
       setQuizState('generating');
       generateQuiz(readingHistory.map(p => p.text).join('\n')).then(q => {
         setCurrentQuiz(q);
@@ -427,7 +427,7 @@ export default function App() {
     const currentParagraph = vnParagraphs[activeParagraphIndex];
     if (currentParagraph) {
         setReadingHistory(prev => {
-            if (prev.length >= 50) return prev; // Wait for quiz to clear it
+            if (prev.length >= 25) return prev; // Wait for quiz to clear it
             return [...prev, {text: currentParagraph.text, cfi: currentParagraph.cfi}];
         });
     }
