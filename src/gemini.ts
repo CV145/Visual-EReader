@@ -234,7 +234,8 @@ export interface Quiz {
 export async function generateQuiz(contextText: string): Promise<Quiz> {
   const ai = getClient();
   const prompt = `You are a Reading Comprehension Teacher. Based on the following story excerpt, generate a 3-question multiple-choice quiz.
-  The questions should test the reader's understanding of the events, character motivations, or key details that occurred in this specific excerpt.
+  The questions should focus on the BIG IDEAS, major plot developments, character arcs, and general comprehension of the story excerpt.
+  Do NOT ask about trivial details, specific dialogue lines, or irrelevant minor facts.
   Each question MUST have exactly 4 options.
   Indicate the correct answer using a 0-based index (0, 1, 2, or 3).
   Output ONLY a valid JSON object matching this schema:
