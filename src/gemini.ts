@@ -221,21 +221,31 @@ export async function extractCharacterProfiles(paragraphsText: string): Promise<
    }
 }
 
-export interface CheckpointData {
-  summary: string;
-  analysis: string;
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  answerIndex: number;
 }
 
-export async function generateCheckpointAnalysis(contextText: string): Promise<CheckpointData> {
+export interface Quiz {
+  questions: QuizQuestion[];
+}
+
+export async function generateQuiz(contextText: string): Promise<Quiz> {
   const ai = getClient();
-  const prompt = `You are an expert literary analyst. Based on the following story excerpt, provide:
-  1. A brief one-paragraph plot summary of what happened.
-  2. A brief one-paragraph analysis of the underlying themes, character motivations, or significant developments.
-  
+  const prompt = `You are a Reading Comprehension Teacher. Based on the following story excerpt, generate a 1-question multiple-choice quiz.
+  The question MUST ALWAYS be EXACTLY: "What were the last 25 paragraphs about?"
+  You must provide exactly 5 options. One of the options must be the correct summary of the excerpt, and the other 4 must be plausible but incorrect summaries.
+  Indicate the correct answer using a 0-based index (0, 1, 2, 3, or 4).
   Output ONLY a valid JSON object matching this schema:
   {
-    "summary": "Summary text here...",
-    "analysis": "Analysis text here..."
+    "questions": [
+      {
+        "question": "What were the last 25 paragraphs about?",
+        "options": ["Option A", "Option B", "Option C", "Option D", "Option E"],
+        "answerIndex": 0
+      }
+    ]
   }
   Do not include any other text, preamble, or markdown formatting outside the JSON object.
 
@@ -251,17 +261,28 @@ export async function generateCheckpointAnalysis(contextText: string): Promise<C
     const raw = (response.text || '{}').trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
     const parsed = JSON.parse(raw);
     
-    if (parsed && typeof parsed.summary === 'string' && typeof parsed.analysis === 'string') {
-      return parsed as CheckpointData;
+    if (parsed && Array.isArray(parsed.questions) && parsed.questions.length === 1 && parsed.questions[0].options.length === 5) {
+      return parsed as Quiz;
     } else {
-      throw new Error("Invalid checkpoint format returned by AI.");
+      throw new Error("Invalid quiz format returned by AI.");
     }
   } catch (error) {
-    console.error("Error generating checkpoint analysis:", error);
+    console.error("Error generating quiz:", error);
     // Fallback if AI fails
     return {
-      summary: "Could not generate summary. Ensure your API key is correct and you have internet connection.",
-      analysis: "Could not generate analysis."
+      questions: [
+        {
+          question: "What were the last 25 paragraphs about?",
+          options: [
+            "A technical error occurred in the simulation.",
+            "The characters sat in silence.",
+            "I couldn't generate the summary. API Error.",
+            "Everyone fell asleep.",
+            "They went on a long journey."
+          ],
+          answerIndex: 2
+        }
+      ]
     };
   }
 }

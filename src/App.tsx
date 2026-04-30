@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import { SettingsModal } from './SettingsModal';
-import { generateAmbientImage, analyzeMusicalSentiment, extractCharacterProfiles, detectOverallGenre, generateCheckpointAnalysis, CheckpointData } from './gemini';
+import { generateAmbientImage, analyzeMusicalSentiment, extractCharacterProfiles, detectOverallGenre, generateQuiz, Quiz, QuizQuestion } from './gemini';
 import { LyriaEngine } from './lyriaEngine';
 import {initLocalLLM, summarizeTextLocally} from './lyriaEngine';
 
@@ -75,54 +75,73 @@ export function SummarizerMVP({ paragraphs, existingSummary, onSummaryGenerated,
   );
 }
 
-function CheckpointModal({
-  checkpointState,
-  currentCheckpoint,
-  onContinue
+function QuizModal({
+  quizState,
+  currentQuiz,
+  quizFeedback,
+  onAnswer,
+  onAcknowledgeFail
 }: {
-  checkpointState: 'inactive' | 'generating' | 'active';
-  currentCheckpoint: CheckpointData | null;
-  onContinue: () => void;
+  quizState: 'inactive' | 'generating' | 'active' | 'failed';
+  currentQuiz: Quiz | null;
+  quizFeedback: { isCorrect: boolean, msg: string } | null;
+  onAnswer: (idx: number) => void;
+  onAcknowledgeFail: () => void;
 }) {
-  if (checkpointState === 'inactive') return null;
+  if (quizState === 'inactive') return null;
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
       <div className="bg-surface-container/90 border border-outline-variant/30 rounded-2xl shadow-2xl p-6 w-full max-w-lg flex flex-col gap-4 text-on-surface">
-        {checkpointState === 'generating' && (
+        {quizState === 'generating' && (
           <div className="text-center py-8">
             <h2 className="text-xl font-display font-bold text-primary mb-2">Analyzing Last 25 Paragraphs...</h2>
-            <p className="text-on-surface-variant text-sm">Generating a summary and analysis checkpoint.</p>
+            <p className="text-on-surface-variant text-sm">Generating a comprehension quiz to test your memory.</p>
           </div>
         )}
 
-        {checkpointState === 'active' && currentCheckpoint && (
+        {quizState === 'active' && currentQuiz && (
           <div className="flex flex-col gap-6">
             <div className="flex justify-between items-center border-b border-outline-variant/20 pb-2">
-              <h2 className="text-lg font-display font-bold text-primary uppercase tracking-wider">Story Checkpoint</h2>
+              <h2 className="text-lg font-display font-bold text-primary uppercase tracking-wider">Pop Quiz</h2>
             </div>
 
-            <div className="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-              <div>
-                <h3 className="text-sm font-bold text-primary mb-1 uppercase tracking-widest">Summary</h3>
-                <p className="text-sm font-body leading-relaxed text-on-surface">
-                  {currentCheckpoint.summary}
-                </p>
-              </div>
-              
-              <div>
-                <h3 className="text-sm font-bold text-primary mb-1 uppercase tracking-widest">Analysis</h3>
-                <p className="text-sm font-body leading-relaxed text-on-surface-variant">
-                  {currentCheckpoint.analysis}
-                </p>
-              </div>
+            <p className="text-base font-body leading-relaxed">
+              {currentQuiz.questions[0].question}
+            </p>
+
+            <div className="flex flex-col gap-2">
+              {currentQuiz.questions[0].options.map((opt, idx) => (
+                <button
+                  key={idx}
+                  disabled={quizFeedback !== null}
+                  onClick={() => onAnswer(idx)}
+                  className="text-left px-4 py-3 rounded-lg bg-surface-variant hover:bg-primary/20 border border-outline-variant/50 hover:border-primary/50 transition-colors disabled:opacity-50 text-sm"
+                >
+                  {opt}
+                </button>
+              ))}
             </div>
 
+            {quizFeedback && (
+              <div className={`p-3 rounded text-sm font-bold text-center ${quizFeedback.isCorrect ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                {quizFeedback.msg}
+              </div>
+            )}
+          </div>
+        )}
+
+        {quizState === 'failed' && (
+          <div className="text-center py-8 flex flex-col gap-4">
+            <h2 className="text-2xl font-display font-bold text-red-400">Quiz Failed</h2>
+            <p className="text-on-surface-variant text-sm leading-relaxed">
+              You answered incorrectly. You must re-read the last 25 paragraphs before continuing.
+            </p>
             <button
-              onClick={onContinue}
-              className="mt-2 bg-primary/20 hover:bg-primary text-primary hover:text-on-primary border border-primary/50 px-6 py-3 rounded-lg font-bold transition-colors uppercase tracking-widest text-sm w-full"
+              onClick={onAcknowledgeFail}
+              className="mt-4 bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/50 px-6 py-3 rounded-lg font-bold transition-colors uppercase tracking-widest text-sm"
             >
-              Continue Reading
+              Rewind 25 Paragraphs
             </button>
           </div>
         )}
@@ -213,32 +232,58 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchProgress, setSearchProgress] = useState(0);
 
-  // ─── Checkpoint State ───────────────────────────────────────────────────────────
+  // ─── Quiz State ───────────────────────────────────────────────────────────
   const [readingHistory, setReadingHistory] = useState<{text: string, cfi: string}[]>([]);
-  const [checkpointState, _setCheckpointState] = useState<'inactive' | 'generating' | 'active'>('inactive');
-  const checkpointStateRef = useRef<'inactive' | 'generating' | 'active'>('inactive');
-  const setCheckpointState = (val: typeof checkpointState) => {
-    checkpointStateRef.current = val;
-    _setCheckpointState(val);
+  const [quizState, _setQuizState] = useState<'inactive' | 'generating' | 'active' | 'failed'>('inactive');
+  const quizStateRef = useRef<'inactive' | 'generating' | 'active' | 'failed'>('inactive');
+  const setQuizState = (val: typeof quizState) => {
+    quizStateRef.current = val;
+    _setQuizState(val);
   };
-  const [currentCheckpoint, setCurrentCheckpoint] = useState<CheckpointData | null>(null);
+  const [currentQuiz, setCurrentQuiz] = useState<Quiz | null>(null);
+  const [quizFeedback, setQuizFeedback] = useState<{isCorrect: boolean, msg: string} | null>(null);
 
   useEffect(() => {
-    if (readingHistory.length === 25 && checkpointStateRef.current === 'inactive') {
-      setCheckpointState('generating');
-      generateCheckpointAnalysis(readingHistory.map(p => p.text).join('\n')).then(data => {
-        setCurrentCheckpoint(data);
-        setCheckpointState('active');
+    if (readingHistory.length === 25 && quizStateRef.current === 'inactive') {
+      setQuizState('generating');
+      generateQuiz(readingHistory.map(p => p.text).join('\n')).then(q => {
+        setCurrentQuiz(q);
+        setQuizState('active');
+        setQuizFeedback(null);
       }).catch(err => {
-        console.error("Checkpoint gen failed completely", err);
-        setCheckpointState('inactive'); // Failsafe
+        console.error("Quiz gen failed completely", err);
+        setQuizState('inactive'); // Failsafe
         setReadingHistory([]);
       });
     }
   }, [readingHistory]);
 
-  const handleCheckpointContinue = () => {
-    setCheckpointState('inactive');
+  const handleQuizAnswer = (idx: number) => {
+    if (!currentQuiz) return;
+    const isCorrect = idx === currentQuiz.questions[0].answerIndex;
+    
+    setQuizFeedback({
+      isCorrect,
+      msg: isCorrect ? "Correct!" : "Incorrect!"
+    });
+
+    setTimeout(() => {
+      if (isCorrect) {
+        setQuizState('inactive');
+        setReadingHistory([]);
+      } else {
+        setQuizState('failed');
+      }
+      setQuizFeedback(null);
+    }, 1500);
+  };
+
+  const handleAcknowledgeFail = () => {
+    if (readingHistory.length > 0 && renditionRef.current) {
+      pendingCfi.current = readingHistory[0].cfi;
+      renditionRef.current.display(readingHistory[0].cfi);
+    }
+    setQuizState('inactive');
     setReadingHistory([]);
   };
 
@@ -268,7 +313,7 @@ export default function App() {
     setIsMusicPlaying(false);
     setBookLoaded(false);
     setReadingHistory([]);
-    setCheckpointState('inactive');
+    setQuizState('inactive');
     setVnParagraphs([]);
     setActiveParagraphIndex(0);
     setTocItems([]);
@@ -357,13 +402,13 @@ export default function App() {
 
   // ─── VN Navigation ────────────────────────────────────────────────────────
   const advanceVnDialogue = useCallback(() => {
-    if (checkpointStateRef.current !== 'inactive') return; // Block navigation
+    if (quizStateRef.current !== 'inactive') return; // Block navigation
 
     // Track reading history
     const currentParagraph = vnParagraphs[activeParagraphIndex];
     if (currentParagraph) {
         setReadingHistory(prev => {
-            if (prev.length >= 25) return prev; // Wait for checkpoint to clear it
+            if (prev.length >= 25) return prev; // Wait for quiz to clear it
             return [...prev, {text: currentParagraph.text, cfi: currentParagraph.cfi}];
         });
     }
@@ -384,7 +429,7 @@ export default function App() {
   }, [activeParagraphIndex, vnParagraphs]);
 
   const previousVnDialogue = useCallback(() => {
-    if (checkpointStateRef.current !== 'inactive') return; // Block navigation
+    if (quizStateRef.current !== 'inactive') return; // Block navigation
     if (activeParagraphIndex > 0) {
       const prevIndex = activeParagraphIndex - 1;
       setActiveParagraphIndex(prevIndex);
@@ -1471,11 +1516,13 @@ export default function App() {
         </div>
       )}
 
-      {checkpointState !== 'inactive' && (
-        <CheckpointModal
-          checkpointState={checkpointState}
-          currentCheckpoint={currentCheckpoint}
-          onContinue={handleCheckpointContinue}
+      {quizState !== 'inactive' && (
+        <QuizModal
+          quizState={quizState}
+          currentQuiz={currentQuiz}
+          quizFeedback={quizFeedback}
+          onAnswer={handleQuizAnswer}
+          onAcknowledgeFail={handleAcknowledgeFail}
         />
       )}
     </>
