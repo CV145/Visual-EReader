@@ -300,6 +300,7 @@ export default function App() {
 
   const handleAcknowledgeFail = () => {
     if (readingHistory.length > 0 && renditionRef.current) {
+      pendingCfi.current = readingHistory[0].cfi;
       renditionRef.current.display(readingHistory[0].cfi);
     }
     setQuizState('inactive');
