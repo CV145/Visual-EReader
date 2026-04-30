@@ -468,6 +468,8 @@ export default function App() {
 
   // ─── Paragraph Index Effect (Context / Music / TTS) ───────────────────────
   useEffect(() => {
+    let interrupted = false;
+    
     if (vnTextBoxRef.current) vnTextBoxRef.current.scrollTo({ top: 0, behavior: 'smooth' });
 
     if (vnParagraphs.length > 0 && activeParagraphIndex >= 0) {
@@ -503,10 +505,19 @@ export default function App() {
         const utter = new SpeechSynthesisUtterance(activeNode.text);
         utter.rate = ttsSpeed;
         utter.pitch = 1.0;
+        utter.onend = () => {
+          if (!interrupted && isTtsEnabled) {
+            advanceVnDialogue();
+          }
+        };
         window.speechSynthesis.speak(utter);
       }
     }
-  }, [activeParagraphIndex, vnParagraphs, isMusicPlaying, isTtsEnabled, activeBook]);
+
+    return () => {
+      interrupted = true;
+    };
+  }, [activeParagraphIndex, vnParagraphs, isMusicPlaying, isTtsEnabled, activeBook, advanceVnDialogue]);
 
   // ─── Passive Scene Character Detection ────────────────────────────────────
   // No AI — simple name-match per paragraph. Fast and free.
