@@ -187,6 +187,8 @@ export default function App() {
   const [activeParagraphIndex, setActiveParagraphIndex] = useState(0);
   const [isVnTextHidden, setIsVnTextHidden] = useState(false);
   const vnTextBoxRef = useRef<HTMLDivElement>(null);
+  const [canScrollUp, setCanScrollUp] = useState(false);
+  const [canScrollDown, setCanScrollDown] = useState(false);
 
   // ─── Font ─────────────────────────────────────────────────────────────────
   const [fontSize, setFontSizeState] = useState(100);
@@ -516,7 +518,17 @@ export default function App() {
   useEffect(() => {
     let interrupted = false;
     
-    if (vnTextBoxRef.current) vnTextBoxRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    if (vnTextBoxRef.current) {
+      vnTextBoxRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      // Detect overflow after DOM renders the new paragraph
+      requestAnimationFrame(() => {
+        const el = vnTextBoxRef.current;
+        if (el) {
+          setCanScrollUp(false);
+          setCanScrollDown(el.scrollHeight > el.clientHeight + 4);
+        }
+      });
+    }
 
     if (vnParagraphs.length > 0 && activeParagraphIndex >= 0) {
       const activeNode = vnParagraphs[activeParagraphIndex];
@@ -1255,29 +1267,68 @@ export default function App() {
 
             {/* Centered Paragraph Display */}
             <div className="relative z-10 flex items-center justify-center w-full h-full px-6 md:px-16 py-20">
-              <div ref={vnTextBoxRef} className="max-w-2xl w-full max-h-[70vh] overflow-y-auto custom-scrollbar" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
-                {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? (
-                  <div
-                    key={activeParagraphIndex}
-                    className="paragraph-enter font-body leading-[2] tracking-wide rounded-2xl p-6 md:p-8 epub-html-content backdrop-blur-sm"
-                    style={{
-                      fontSize: `${((fontSize / 100) * 1.6).toFixed(2)}rem`,
-                      backgroundColor: 'rgba(0,0,0,0.45)',
-                      color: 'rgba(243, 244, 246, 1)',
-                      borderLeft: '3px solid rgba(198, 198, 198, 0.15)',
+              <div className="relative max-w-2xl w-full">
+                <div ref={vnTextBoxRef} className="max-h-[70vh] overflow-y-auto custom-scrollbar" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}
+                  onScroll={() => {
+                    const el = vnTextBoxRef.current;
+                    if (!el) return;
+                    setCanScrollUp(el.scrollTop > 4);
+                    setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 4);
+                  }}
+                >
+                  {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? (
+                    <div
+                      key={activeParagraphIndex}
+                      className="paragraph-enter font-body leading-[2] tracking-wide rounded-2xl p-6 md:p-8 epub-html-content backdrop-blur-sm"
+                      style={{
+                        fontSize: `${((fontSize / 100) * 1.6).toFixed(2)}rem`,
+                        backgroundColor: 'rgba(0,0,0,0.45)',
+                        color: 'rgba(243, 244, 246, 1)',
+                        borderLeft: '3px solid rgba(198, 198, 198, 0.15)',
+                      }}
+                      dangerouslySetInnerHTML={{ __html: vnParagraphs[activeParagraphIndex].html || '' }}
+                    />
+                  ) : (
+                    <p
+                      className="paragraph-enter font-body leading-[2] tracking-wide text-gray-100 rounded-2xl p-6 md:p-8"
+                      style={{
+                        fontSize: `${((fontSize / 100) * 1.6).toFixed(2)}rem`,
+                        backgroundColor: 'rgba(0,0,0,0.45)',
+                      }}
+                    >
+                      Loading content...
+                    </p>
+                  )}
+                </div>
+
+                {/* Scroll Arrow Buttons — visible only when content overflows */}
+                {canScrollUp && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const el = vnTextBoxRef.current;
+                      if (el) el.scrollBy({ top: -(el.clientHeight * 0.6), behavior: 'smooth' });
                     }}
-                    dangerouslySetInnerHTML={{ __html: vnParagraphs[activeParagraphIndex].html || '' }}
-                  />
-                ) : (
-                  <p
-                    className="paragraph-enter font-body leading-[2] tracking-wide text-gray-100 rounded-2xl p-6 md:p-8"
-                    style={{
-                      fontSize: `${((fontSize / 100) * 1.6).toFixed(2)}rem`,
-                      backgroundColor: 'rgba(0,0,0,0.45)',
-                    }}
+                    className="absolute -left-12 md:-left-14 top-1/2 -translate-y-[calc(50%+24px)] w-10 h-10 rounded-full bg-black/60 hover:bg-primary/40 border border-white/20 hover:border-primary/50 text-white/80 hover:text-white flex items-center justify-center backdrop-blur-md transition-all cursor-pointer shadow-lg"
+                    title="Scroll up"
+                    aria-label="Scroll text up"
                   >
-                    Loading content...
-                  </p>
+                    <span className="material-symbols-outlined text-xl">keyboard_arrow_up</span>
+                  </button>
+                )}
+                {canScrollDown && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const el = vnTextBoxRef.current;
+                      if (el) el.scrollBy({ top: el.clientHeight * 0.6, behavior: 'smooth' });
+                    }}
+                    className="absolute -left-12 md:-left-14 top-1/2 translate-y-[calc(-50%+24px)] w-10 h-10 rounded-full bg-black/60 hover:bg-primary/40 border border-white/20 hover:border-primary/50 text-white/80 hover:text-white flex items-center justify-center backdrop-blur-md transition-all cursor-pointer shadow-lg"
+                    title="Scroll down"
+                    aria-label="Scroll text down"
+                  >
+                    <span className="material-symbols-outlined text-xl">keyboard_arrow_down</span>
+                  </button>
                 )}
               </div>
             </div>
