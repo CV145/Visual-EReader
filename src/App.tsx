@@ -225,6 +225,11 @@ export default function App() {
 
   const [persistentSummary, setPersistentSummary] = useState("");
   const [isSceneControlsVisible, setIsSceneControlsVisible] = useState(true);
+  const [isUiVisible, setIsUiVisible] = useState(true);
+  const uiHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartY = useRef<number | null>(null);
+  const touchStartX = useRef<number | null>(null);
+  const swipeHandled = useRef(false);
 
   // ─── Search State ─────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
@@ -233,6 +238,10 @@ export default function App() {
   const [searchProgress, setSearchProgress] = useState(0);
 
   // ─── Quiz State ───────────────────────────────────────────────────────────
+  const [isQuizEnabled, setIsQuizEnabled] = useState(() => {
+    const saved = localStorage.getItem('QUIZ_ENABLED');
+    return saved !== null ? saved === 'true' : true; // default on
+  });
   const [lastPassedQuizIndex, setLastPassedQuizIndex] = useState(-1);
   const [quizState, _setQuizState] = useState<'inactive' | 'generating' | 'active' | 'failed'>('inactive');
   const quizStateRef = useRef<'inactive' | 'generating' | 'active' | 'failed'>('inactive');
@@ -244,7 +253,7 @@ export default function App() {
   const [quizFeedback, setQuizFeedback] = useState<{isCorrect: boolean, msg: string} | null>(null);
 
   useEffect(() => {
-    if (vnParagraphs.length === 0 || quizStateRef.current !== 'inactive') return;
+    if (!isQuizEnabled || vnParagraphs.length === 0 || quizStateRef.current !== 'inactive') return;
 
     const isMultipleOf30 = activeParagraphIndex > 0 && activeParagraphIndex % 30 === 0;
     const isEndOfShortChapter = activeParagraphIndex === vnParagraphs.length - 1 && vnParagraphs.length < 30 && activeParagraphIndex > 0;
@@ -268,7 +277,7 @@ export default function App() {
         setQuizState('inactive'); // Failsafe
       });
     }
-  }, [activeParagraphIndex, vnParagraphs, lastPassedQuizIndex]);
+  }, [activeParagraphIndex, vnParagraphs, lastPassedQuizIndex, isQuizEnabled]);
 
   const handleQuizAnswer = (idx: number) => {
     if (!currentQuiz) return;
@@ -297,6 +306,7 @@ export default function App() {
       pendingCfi.current = vnParagraphs[targetIndex].cfi;
       renditionRef.current.display(vnParagraphs[targetIndex].cfi);
     }
+    setLastPassedQuizIndex(targetIndex); // Prevent re-triggering quiz at the rewind target
     setQuizState('inactive');
   };
 
@@ -381,11 +391,11 @@ export default function App() {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
-      if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); advanceVnDialogue(); }
-      if (e.key === 'ArrowLeft') { e.preventDefault(); previousVnDialogue(); }
-      if (e.key === 'ArrowUp') { e.preventDefault(); vnTextBoxRef.current?.scrollBy({ top: -40, behavior: 'smooth' }); }
-      if (e.key === 'ArrowDown') { e.preventDefault(); vnTextBoxRef.current?.scrollBy({ top: 40, behavior: 'smooth' }); }
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); advanceVnDialogue(); }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); previousVnDialogue(); }
       if (e.key.toLowerCase() === 'h') setIsVnTextHidden(prev => !prev);
+      // Any key press resets auto-hide timer
+      resetUiHideTimer();
     };
     window.addEventListener('keydown', handleKeyDown);
 
@@ -449,6 +459,54 @@ export default function App() {
       } catch(e) { isNavigatingBackward.current = true; }
     }
   }, [activeParagraphIndex, vnParagraphs]);
+
+  // ─── Auto-Hide UI Timer ──────────────────────────────────────────────────
+  const resetUiHideTimer = useCallback(() => {
+    setIsUiVisible(true);
+    if (uiHideTimerRef.current) clearTimeout(uiHideTimerRef.current);
+    uiHideTimerRef.current = setTimeout(() => setIsUiVisible(false), 3000);
+  }, []);
+
+  // Start the auto-hide timer when a book loads
+  useEffect(() => {
+    if (bookLoaded) resetUiHideTimer();
+    return () => { if (uiHideTimerRef.current) clearTimeout(uiHideTimerRef.current); };
+  }, [bookLoaded]);
+
+  // ─── Touch Swipe Handler ─────────────────────────────────────────────────
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartY.current = e.touches[0].clientY;
+    touchStartX.current = e.touches[0].clientX;
+    swipeHandled.current = false;
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (touchStartY.current === null || touchStartX.current === null || swipeHandled.current) return;
+    const deltaY = touchStartY.current - e.touches[0].clientY;
+    const deltaX = Math.abs(touchStartX.current - e.touches[0].clientX);
+    // Only trigger if vertical swipe is dominant and exceeds threshold
+    if (Math.abs(deltaY) > 50 && Math.abs(deltaY) > deltaX) {
+      swipeHandled.current = true;
+      if (deltaY > 0) {
+        advanceVnDialogue();
+        navigator.vibrate?.(10);
+      } else {
+        previousVnDialogue();
+        navigator.vibrate?.(10);
+      }
+      resetUiHideTimer();
+    }
+  }, [advanceVnDialogue, previousVnDialogue, resetUiHideTimer]);
+
+  const handleTouchEnd = useCallback(() => {
+    // If no swipe was detected, treat it as a tap to toggle UI
+    if (!swipeHandled.current && touchStartY.current !== null) {
+      setIsUiVisible(prev => !prev);
+      if (!isUiVisible) resetUiHideTimer();
+    }
+    touchStartY.current = null;
+    touchStartX.current = null;
+  }, [isUiVisible, resetUiHideTimer]);
 
   // ─── Paragraph Index Effect (Context / Music / TTS) ───────────────────────
   useEffect(() => {
@@ -1058,7 +1116,7 @@ export default function App() {
       <div className="vibe-bg transition-all duration-1000 ease-in-out" aria-hidden="true" style={{ backgroundImage: `url(${bgImage})` }}></div>
 
       {/* Top AppBar */}
-      <header className="bg-surface flex justify-between items-center w-full px-4 md:px-12 py-4 md:py-6 max-w-full fixed top-0 z-50">
+      <header className={`bg-surface flex justify-between items-center w-full px-4 md:px-12 py-4 md:py-6 max-w-full fixed top-0 z-50 ui-auto-hide ui-header ${!isUiVisible ? 'ui-hidden' : ''}`}>
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
@@ -1143,86 +1201,106 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Layout */}
-      <main className="fixed top-14 md:top-20 bottom-14 md:bottom-20 left-0 right-0 z-0 bg-black flex items-center justify-center overflow-hidden">
-        <div className="absolute inset-0 bg-center bg-no-repeat transition-transform duration-[120s] ease-linear scale-100"
-          style={{ backgroundImage: `url(${bgImage})`, backgroundSize: isStretchImage ? '100% 100%' : 'contain' }} />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
+      {/* Main Layout — TikTok-style fullscreen */}
+      <main
+        className="fixed inset-0 z-0 bg-black flex items-center justify-center overflow-hidden cursor-pointer"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onClick={() => { setIsUiVisible(prev => !prev); if (!isUiVisible) resetUiHideTimer(); }}
+      >
+        {/* Ken Burns Background */}
+        <div className="absolute inset-0 ken-burns-bg bg-center bg-no-repeat"
+          style={{ backgroundImage: `url(${bgImage})`, backgroundSize: isStretchImage ? '100% 100%' : 'cover' }} />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/50 pointer-events-none" />
         <div className="absolute inset-0 p-8 opacity-0 pointer-events-none -z-10" ref={viewerRef}></div>
-
-        <div className="absolute inset-0 z-10 flex">
-          <div className="w-[20%] h-full cursor-pointer flex items-center justify-start px-4 group" onClick={(e) => { e.stopPropagation(); prevPage(); }}>
-            <span className="material-symbols-outlined text-white/10 group-hover:text-white/40 transition-colors text-4xl select-none">chevron_left</span>
-          </div>
-          <div className="flex-1 h-full cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsSceneControlsVisible(!isSceneControlsVisible); }}></div>
-          <div className="w-[20%] h-full cursor-pointer flex items-center justify-end px-4 group" onClick={(e) => { e.stopPropagation(); nextPage(); }}>
-            <span className="material-symbols-outlined text-white/10 group-hover:text-white/40 transition-colors text-4xl select-none">chevron_right</span>
-          </div>
-        </div>
 
         {bookLoaded ? (
           <>
-            <div className={`absolute top-4 right-6 z-50 flex gap-4 pointer-events-auto shadow-2xl transition-all duration-300 ${isSceneControlsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'}`}>
-              <button onClick={handleGenerate} disabled={isLoadingImage}
-                className="bg-black/90 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 disabled:opacity-60 disabled:cursor-not-allowed"
+            {/* Scene Controls — top right, visible with UI */}
+            <div className={`absolute top-20 md:top-24 right-4 md:right-6 z-50 flex flex-col gap-3 pointer-events-auto ui-auto-hide ${!isUiVisible ? 'ui-hidden' : ''}`}>
+              <button onClick={() => handleGenerate()} disabled={isLoadingImage}
+                className="bg-black/70 hover:bg-primary border border-outline-variant/30 text-white rounded-full p-3 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                 title={isLoadingImage ? "Generating..." : "Generate Scene Image"}>
                 {isLoadingImage
-                  ? <span className="material-symbols-outlined animate-spin">progress_activity</span>
-                  : <span className="material-symbols-outlined">magic_button</span>}
+                  ? <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+                  : <span className="material-symbols-outlined text-xl">magic_button</span>}
               </button>
               <button onClick={() => { setDrawerTab('characters'); setIsDrawerOpen(true); }}
-                className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
+                className="bg-black/70 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-3 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all"
                 title="Character Profiles">
-                <span className="material-symbols-outlined">person_book</span>
+                <span className="material-symbols-outlined text-xl">person_book</span>
               </button>
               <button onClick={() => setIsExpanded(true)}
-                className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
+                className="bg-black/70 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-3 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all"
                 title="Expand Image">
-                <span className="material-symbols-outlined">fullscreen</span>
-              </button>
-              <button onClick={() => setIsVnTextHidden(!isVnTextHidden)}
-                className="bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110"
-                title="Toggle TextBox (H)">
-                <span className="material-symbols-outlined">{isVnTextHidden ? 'visibility_off' : 'visibility'}</span>
-              </button>
-              <button onClick={() => setIsSummaryVisible(!isSummaryVisible)}
-                className={`bg-black/90 hover:bg-surface-container-high border border-outline-variant/30 rounded-full p-4 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all scale-110 ${isSummaryVisible ? 'text-primary' : 'text-white'}`}
-                title="Toggle Summary Box">
-                <span className="material-symbols-outlined">{isSummaryVisible ? 'speaker_notes_off' : 'description'}</span>
+                <span className="material-symbols-outlined text-xl">fullscreen</span>
               </button>
             </div>
 
-            {!isVnTextHidden && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-40 flex flex-col h-[30vh]">
-                <div className="flex justify-between items-center mb-3 shrink-0">
-                  <span className="text-primary font-label text-sm uppercase tracking-widest px-3 py-1 bg-black/60 rounded-full border border-primary/20 shadow-inner backdrop-blur-sm">{chapterTitle}</span>
-                  <span className="text-white/70 text-xs font-mono tracking-widest bg-black/60 px-3 py-1 rounded-full border border-white/10 backdrop-blur-sm">{activeParagraphIndex + 1} / {vnParagraphs.length || 1}</span>
-                </div>
+            {/* Centered Paragraph Display */}
+            <div className="relative z-10 flex items-center justify-center w-full h-full px-6 md:px-16 py-20">
+              <div ref={vnTextBoxRef} className="max-w-2xl w-full max-h-[70vh] overflow-y-auto custom-scrollbar" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
+                {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? (
+                  <div
+                    key={activeParagraphIndex}
+                    className="paragraph-enter font-body leading-[2] tracking-wide rounded-2xl p-6 md:p-8 epub-html-content backdrop-blur-sm"
+                    style={{
+                      fontSize: `${((fontSize / 100) * 1.6).toFixed(2)}rem`,
+                      backgroundColor: 'rgba(0,0,0,0.45)',
+                      color: 'rgba(243, 244, 246, 1)',
+                      borderLeft: '3px solid rgba(198, 198, 198, 0.15)',
+                    }}
+                    dangerouslySetInnerHTML={{ __html: vnParagraphs[activeParagraphIndex].html || '' }}
+                  />
+                ) : (
+                  <p
+                    className="paragraph-enter font-body leading-[2] tracking-wide text-gray-100 rounded-2xl p-6 md:p-8"
+                    style={{
+                      fontSize: `${((fontSize / 100) * 1.6).toFixed(2)}rem`,
+                      backgroundColor: 'rgba(0,0,0,0.45)',
+                    }}
+                  >
+                    Loading content...
+                  </p>
+                )}
+              </div>
+            </div>
 
+            {/* Chapter title & Paragraph counter — top left overlay */}
+            <div className={`absolute top-20 md:top-24 left-4 md:left-6 z-40 flex items-center gap-2 md:gap-3 ui-auto-hide ${!isUiVisible ? 'ui-hidden' : ''}`}>
+              <span className="text-primary font-label text-xs md:text-sm uppercase tracking-widest px-3 py-1.5 bg-black/60 rounded-full border border-primary/20 shadow-inner backdrop-blur-sm">{chapterTitle}</span>
+              <span className="text-white/70 text-xs font-mono tracking-widest bg-black/60 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-sm">
+                {activeParagraphIndex + 1} / {vnParagraphs.length || 1}
+              </span>
+            </div>
 
-                <div ref={vnTextBoxRef} className="flex-1 overflow-y-auto px-2" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
-                  {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? (
-                    <div
-                      onClick={nextPage}
-                      className="font-body leading-[1.8] tracking-wide transition-all duration-300 rounded-lg p-4 epub-html-content cursor-pointer active:bg-white/5"
-                      style={{
-                        fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem`,
-                        backgroundColor: 'rgba(0,0,0,0.25)',
-                        color: 'rgba(243, 244, 246, 1)' /* Tailwind text-gray-100 */
-                      }}
-                      dangerouslySetInnerHTML={{ __html: vnParagraphs[activeParagraphIndex].html || '' }}
-                    />
-                  ) : (
-                    <p
-                      className="font-body leading-[1.8] tracking-wide transition-all duration-300 text-gray-100 rounded-lg p-4"
-                      style={{
-                        fontSize: `${((fontSize / 100) * 1.5).toFixed(2)}rem`,
-                        backgroundColor: 'rgba(0,0,0,0.25)',
-                      }}
-                    >
-                      Loading content...
-                    </p>
-                  )}
+            {/* Progress Ring — bottom right overlay */}
+            <div className={`absolute bottom-6 right-4 md:right-6 z-40 ui-auto-hide ${!isUiVisible ? 'ui-hidden' : ''}`}>
+              <svg width="44" height="44" viewBox="0 0 44 44">
+                <circle cx="22" cy="22" r="18" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
+                <circle
+                  cx="22" cy="22" r="18"
+                  fill="none"
+                  stroke="rgba(198,198,198,0.8)"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  className="progress-ring-circle"
+                  strokeDasharray={`${2 * Math.PI * 18}`}
+                  strokeDashoffset={`${2 * Math.PI * 18 * (1 - (vnParagraphs.length > 0 ? (activeParagraphIndex + 1) / vnParagraphs.length : 0))}`}
+                />
+                <text x="22" y="22" textAnchor="middle" dominantBaseline="central" fill="rgba(255,255,255,0.7)" fontSize="10" fontFamily="monospace">
+                  {vnParagraphs.length > 0 ? Math.round(((activeParagraphIndex + 1) / vnParagraphs.length) * 100) : 0}%
+                </text>
+              </svg>
+            </div>
+
+            {/* Loading image indicator — center bottom */}
+            {isLoadingImage && (
+              <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-40">
+                <div className="flex items-center gap-2 bg-black/70 backdrop-blur-md px-4 py-2 rounded-full border border-outline-variant/30">
+                  <span className="material-symbols-outlined animate-spin text-primary text-sm">progress_activity</span>
+                  <span className="text-xs text-white/70 font-mono uppercase tracking-wider">Generating scene...</span>
                 </div>
               </div>
             )}
@@ -1236,7 +1314,7 @@ export default function App() {
       </main>
 
       {/* BottomNavBar */}
-      <footer className="fixed bottom-0 left-0 w-full z-50 h-14 md:h-20 bg-surface-container-low flex justify-between items-center px-4 md:px-12 border-t border-outline-variant/15 text-white/90">
+      <footer className={`fixed bottom-0 left-0 w-full z-50 h-14 md:h-20 bg-surface-container-low flex justify-between items-center px-4 md:px-12 border-t border-outline-variant/15 text-white/90 ui-auto-hide ui-footer ${!isUiVisible ? 'ui-hidden' : ''}`}>
         <div className="flex items-center gap-1 md:gap-6">
           <button onClick={() => { setDrawerTab('toc'); setIsDrawerOpen(true); }} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group" title="Table of Contents">
             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">format_list_bulleted</span>
@@ -1249,6 +1327,13 @@ export default function App() {
           </button>
           <button onClick={() => { setDrawerTab('search'); setIsDrawerOpen(true); }} className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center hover:bg-surface-variant hover:text-primary rounded-full transition-all cursor-pointer group" title="Search Book">
             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">search</span>
+          </button>
+          <button
+            onClick={() => { const next = !isQuizEnabled; setIsQuizEnabled(next); localStorage.setItem('QUIZ_ENABLED', next.toString()); }}
+            className={`w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all cursor-pointer group ${isQuizEnabled ? 'text-green-400' : 'text-on-surface-variant hover:text-primary'}`}
+            title={isQuizEnabled ? "Quizzes: ON" : "Quizzes: OFF"}
+          >
+            <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">quiz</span>
           </button>
         </div>
         <div className="flex items-center gap-2 bg-surface-variant/40 rounded-full px-2 py-1 border border-outline-variant/20 mx-2 md:mx-4">

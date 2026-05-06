@@ -120,6 +120,61 @@ html, body {
     padding: 0 !important;
     font-size: inherit !important;
 }
+
+/* ─── TikTok-Style Paragraph Entrance Animation ──────────────────────── */
+@keyframes paragraphSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(30px);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.paragraph-enter {
+  animation: paragraphSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ─── Ken Burns Background Drift ──────────────────────────────────────── */
+@keyframes kenBurnsDrift {
+  0% { transform: scale(1.05) translate(0%, 0%); }
+  25% { transform: scale(1.1) translate(-1%, 0.5%); }
+  50% { transform: scale(1.08) translate(0.5%, -0.5%); }
+  75% { transform: scale(1.12) translate(-0.5%, 0.3%); }
+  100% { transform: scale(1.05) translate(0%, 0%); }
+}
+
+.ken-burns-bg {
+  animation: kenBurnsDrift 60s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* ─── Auto-Hide Header/Footer ─────────────────────────────────────────── */
+.ui-auto-hide {
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.ui-auto-hide.ui-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.ui-auto-hide.ui-hidden.ui-header {
+  transform: translateY(-100%);
+}
+.ui-auto-hide.ui-hidden.ui-footer {
+  transform: translateY(100%);
+}
+
+/* ─── Progress Ring ───────────────────────────────────────────────────── */
+.progress-ring-circle {
+  transition: stroke-dashoffset 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
 /* Mobile-specific adjustments */
 @media (max-width: 768px) {
   .vibe-bg {
@@ -136,13 +191,6 @@ html, body {
     height: 4rem !important;
     padding-left: 0.5rem !important;
     padding-right: 0.5rem !important;
-  }
-
-  .vn-text-box {
-    width: 96% !important;
-    bottom: 4.5rem !important;
-    height: auto !important;
-    max-height: 40vh !important;
   }
 }
 
@@ -164,3 +212,4 @@ html, body {
   transform: translateY(10px);
   transition: opacity 300ms, transform 300ms;
 }
+
