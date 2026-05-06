@@ -10,6 +10,7 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
   const [includeCharacters, setIncludeCharacters] = useState(false);
   const [imageStyle, setImageStyle] = useState('cinematic');
   const [isStretchImage, setIsStretchImage] = useState(false);
+  const [autoImageInterval, setAutoImageInterval] = useState(30);
   
   // Local AI Settings
   const [imageProvider, setImageProvider] = useState<'cloud' | 'local'>('cloud');
@@ -29,6 +30,9 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
     const stretchPref = localStorage.getItem('STRETCH_IMAGE');
     setIsStretchImage(stretchPref === 'true');
     
+    const savedInterval = localStorage.getItem('AUTO_IMAGE_INTERVAL');
+    setAutoImageInterval(savedInterval ? parseInt(savedInterval, 10) : 30);
+
     const savedProvider = localStorage.getItem('IMAGE_GEN_PROVIDER') as 'cloud' | 'local';
     if (savedProvider) setImageProvider(savedProvider);
     
@@ -42,6 +46,7 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
     localStorage.setItem('IMAGE_STYLE_PREF', imageStyle);
     localStorage.setItem('STRETCH_IMAGE', isStretchImage ? 'true' : 'false');
     localStorage.setItem('IMAGE_GEN_PROVIDER', imageProvider);
+    localStorage.setItem('AUTO_IMAGE_INTERVAL', autoImageInterval.toString());
 
     if (onSave) onSave();
 
@@ -206,6 +211,26 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
             Include characters in generated images (Cloud Only)
           </span>
         </label>
+
+        {/* Auto Image Interval */}
+        <div className="mb-6">
+          <label className="block text-on-surface text-sm font-body mb-2">
+            Auto-generate image every N paragraphs <span className="text-on-surface-variant text-xs">(when quizzes are OFF)</span>
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={5}
+              max={200}
+              step={5}
+              value={autoImageInterval}
+              onChange={(e) => setAutoImageInterval(Math.max(5, Math.min(200, parseInt(e.target.value, 10) || 30)))}
+              className="w-24 bg-surface-container-highest border border-outline-variant text-on-surface p-3 rounded-lg focus:outline-none focus:border-primary transition-colors text-center font-mono"
+            />
+            <span className="text-on-surface-variant text-xs">paragraphs</span>
+          </div>
+          <p className="text-on-surface-variant text-xs mt-1.5 opacity-70">Images auto-generate at multiples of this number while reading. Default: 30.</p>
+        </div>
         
         <div className="flex justify-end gap-3 mt-4">
           <button 

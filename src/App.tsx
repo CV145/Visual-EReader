@@ -250,6 +250,13 @@ export default function App() {
   const [currentQuiz, setCurrentQuiz] = useState<Quiz | null>(null);
   const [quizFeedback, setQuizFeedback] = useState<{isCorrect: boolean, msg: string} | null>(null);
 
+  // ─── Auto Image Generation (when quiz is disabled) ────────────────────────
+  const [autoImageInterval, setAutoImageInterval] = useState(() => {
+    const saved = localStorage.getItem('AUTO_IMAGE_INTERVAL');
+    return saved ? parseInt(saved, 10) : 30;
+  });
+  const lastAutoImageIndex = useRef(-1);
+
   useEffect(() => {
     if (!isQuizEnabled || vnParagraphs.length === 0 || quizStateRef.current !== 'inactive') return;
 
@@ -276,6 +283,18 @@ export default function App() {
       });
     }
   }, [activeParagraphIndex, vnParagraphs, lastPassedQuizIndex, isQuizEnabled]);
+
+  // ─── Auto Image Generation Effect (when quiz is OFF) ─────────────────────
+  useEffect(() => {
+    if (isQuizEnabled || vnParagraphs.length === 0 || isLoadingImage) return;
+    if (autoImageInterval <= 0) return;
+
+    const isMultiple = activeParagraphIndex > 0 && activeParagraphIndex % autoImageInterval === 0;
+    if (isMultiple && activeParagraphIndex !== lastAutoImageIndex.current) {
+      lastAutoImageIndex.current = activeParagraphIndex;
+      handleGenerate(autoImageInterval);
+    }
+  }, [activeParagraphIndex, vnParagraphs, isQuizEnabled, autoImageInterval, isLoadingImage]);
 
   const handleQuizAnswer = (idx: number) => {
     if (!currentQuiz) return;
@@ -322,6 +341,9 @@ export default function App() {
     }
     // Also refresh other global visual settings if needed
     setIsStretchImage(localStorage.getItem('STRETCH_IMAGE') === 'true');
+    // Refresh auto-image interval
+    const savedInterval = localStorage.getItem('AUTO_IMAGE_INTERVAL');
+    if (savedInterval) setAutoImageInterval(parseInt(savedInterval, 10));
   };
 
   // ─── Open Book from Library ───────────────────────────────────────────────
@@ -335,6 +357,7 @@ export default function App() {
     setBookLoaded(false);
     setQuizState('inactive');
     setLastPassedQuizIndex(-1);
+    lastAutoImageIndex.current = -1;
     setVnParagraphs([]);
     setActiveParagraphIndex(0);
     setTocItems([]);
