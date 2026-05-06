@@ -224,6 +224,7 @@ export default function App() {
   const pendingCfi = useRef<string | null>(null);
   const pendingBookmarkIndex = useRef<number | null>(null);
   const hasAutoResumed = useRef(false);
+  const currentTtsAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const [persistentSummary, setPersistentSummary] = useState("");
   const [isUiVisible, setIsUiVisible] = useState(true);
@@ -355,6 +356,11 @@ export default function App() {
     if (bookRef.current) { bookRef.current.destroy(); bookRef.current = null; }
     lyriaRef.current?.stop?.();
     lyriaRef.current = null;
+    if (currentTtsAudioRef.current) {
+      currentTtsAudioRef.current.pause();
+      currentTtsAudioRef.current = null;
+    }
+    window.speechSynthesis.cancel();
     setIsMusicPlaying(false);
     setBookLoaded(false);
     setQuizState('inactive');
@@ -557,23 +563,105 @@ export default function App() {
         }
       }
 
-      // TTS: speak paragraph text
+      // TTS: speak paragraph text using TikTok TTS
       if (isTtsEnabled && activeNode) {
+        if (currentTtsAudioRef.current) {
+          currentTtsAudioRef.current.pause();
+          currentTtsAudioRef.current = null;
+        }
         window.speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance(activeNode.text);
-        utter.rate = ttsSpeed;
-        utter.pitch = 1.0;
-        utter.onend = () => {
-          if (!interrupted && isTtsEnabled) {
-            advanceVnDialogue();
+
+        const playTikTokAudio = async () => {
+          try {
+            // Sanitize text for TikTok TTS (which fails on special quotes, dashes, etc.)
+            const sanitizedText = activeNode.text
+              .replace(/[“”"]/g, '')
+              .replace(/[‘’]/g, "'")
+              .replace(/—/g, ', ')
+              .replace(/…/g, '...')
+              .replace(/&/g, 'and')
+              .replace(/\*/g, '');
+
+            // Split paragraph into manageable chunks (under 250 chars)
+            const sentences = sanitizedText.match(/[^.!?]+[.!?]*/g) || [sanitizedText];
+            let chunks: string[] = [];
+            let curr = "";
+
+            for (const s of sentences) {
+              if (s.length >= 250) {
+                // If a single sentence is huge, split it by spaces
+                const words = s.split(' ');
+                for (const w of words) {
+                  if (curr.length + w.length + 1 < 250) {
+                    curr += (curr ? ' ' : '') + w;
+                  } else {
+                    if (curr.trim()) chunks.push(curr.trim());
+                    curr = w;
+                  }
+                }
+              } else if (curr.length + s.length + 1 < 250) {
+                curr += (curr ? ' ' : '') + s.trim();
+              } else {
+                if (curr.trim()) chunks.push(curr.trim());
+                curr = s.trim();
+              }
+            }
+            if (curr.trim()) chunks.push(curr.trim());
+
+            for (const chunk of chunks) {
+              if (interrupted || !isTtsEnabled) return;
+              if (!chunk) continue;
+              
+              const voice = localStorage.getItem('TIKTOK_TTS_VOICE') || 'en_us_001';
+              const res = await fetch("https://ottsy.weilbyte.dev/api/generation", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: chunk, voice })
+              });
+              
+              if (!res.ok) throw new Error("TTS API Error");
+              const data = await res.json();
+              if (interrupted || !isTtsEnabled) return;
+              
+              if (data.data) {
+                await new Promise<void>((resolve) => {
+                  if (!currentTtsAudioRef.current) {
+                    currentTtsAudioRef.current = new Audio();
+                  }
+                  const audio = currentTtsAudioRef.current;
+                  audio.src = "data:audio/mpeg;base64," + data.data;
+                  audio.playbackRate = ttsSpeed;
+                  
+                  audio.onended = () => resolve();
+                  audio.onerror = () => resolve(); // continue even if one chunk fails
+                  audio.play().catch(e => { console.error("Audio play failed:", e); resolve(); });
+                });
+              }
+            }
+            
+            if (!interrupted && isTtsEnabled) {
+              advanceVnDialogue();
+            }
+          } catch (err) {
+            console.error("TikTok TTS Error:", err);
+            // If the API completely fails, just fallback to advancing the text
+            if (!interrupted && isTtsEnabled) {
+              setTimeout(() => {
+                if (!interrupted && isTtsEnabled) advanceVnDialogue();
+              }, 2000);
+            }
           }
         };
-        window.speechSynthesis.speak(utter);
+
+        playTikTokAudio();
       }
     }
 
     return () => {
       interrupted = true;
+      if (currentTtsAudioRef.current) {
+        currentTtsAudioRef.current.pause();
+      }
     };
   }, [activeParagraphIndex, vnParagraphs, isMusicPlaying, isTtsEnabled, activeBook, advanceVnDialogue]);
 
@@ -1028,6 +1116,10 @@ export default function App() {
   // ─── TTS ──────────────────────────────────────────────────────────────────
   const toggleTts = () => {
     if (isTtsEnabled) {
+      if (currentTtsAudioRef.current) {
+        currentTtsAudioRef.current.pause();
+        currentTtsAudioRef.current = null;
+      }
       window.speechSynthesis.cancel();
       setIsTtsEnabled(false);
     } else {
@@ -1156,46 +1248,7 @@ export default function App() {
           <span className="text-[10px] md:text-sm font-label text-on-surface-variant uppercase tracking-widest truncate max-w-full block">{chapterTitle}</span>
         </div>
         <div className="flex gap-1.5 md:gap-3 items-center">
-          {/* Music Toggle */}
-          <button
-            onClick={toggleMusic}
-            title="Ambient Real-Time Music"
-            className={`transition-colors duration-300 px-2.5 py-1.5 rounded-md border cursor-pointer flex items-center gap-1 ${isMusicPlaying ? 'text-red-400 bg-surface-container border-red-500/30 shadow-inner' : 'text-primary hover:bg-surface-container-high border-surface-container-highest'}`}
-          >
-            <span className="material-symbols-outlined text-sm">{isMusicPlaying ? 'stop_circle' : 'play_circle'}</span>
-            <span className="text-xs font-bold uppercase tracking-wider font-label whitespace-nowrap hidden sm:inline">{isMusicPlaying ? 'Stop Audio' : 'Start Audio'}</span>
-          </button>
-          {/* TTS Toggle */}
-          <div className="flex items-center gap-1 bg-surface-container rounded-lg px-1.5 py-1 border border-surface-container-highest">
-            <button
-              onClick={toggleTts}
-              title={isTtsEnabled ? "Disable Narration" : "Enable Narration"}
-              className={`transition-colors duration-300 p-2 rounded-lg cursor-pointer ${isTtsEnabled ? 'text-green-400' : 'text-primary hover:bg-surface-container-high'}`}
-            >
-              <span className="material-symbols-outlined text-sm">{isTtsEnabled ? 'record_voice_over' : 'voice_over_off'}</span>
-            </button>
-            {isTtsEnabled && (
-              <button
-                onClick={() => {
-                  const nextRates = [1.0, 1.5, 2.0];
-                  const idx = nextRates.indexOf(ttsSpeed);
-                  const next = nextRates[(idx + 1) % nextRates.length];
-                  setTtsSpeed(next);
-                  localStorage.setItem('TTS_SPEED', next.toString());
-                  // Also re-speak current if playing
-                  if (vnParagraphs[activeParagraphIndex]) {
-                    window.speechSynthesis.cancel();
-                    const utter = new SpeechSynthesisUtterance(vnParagraphs[activeParagraphIndex].text);
-                    utter.rate = next;
-                    window.speechSynthesis.speak(utter);
-                  }
-                }}
-                className="text-[10px] font-bold font-mono px-1.5 py-1 rounded bg-black/20 text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
-              >
-                {ttsSpeed}x
-              </button>
-            )}
-          </div>
+
           <button onClick={() => { setDrawerTab('toc'); setIsDrawerOpen(true); }} title="Table of Contents" className="text-primary hover:bg-surface-container-high transition-colors duration-300 p-2 rounded-lg cursor-pointer">
             <span className="material-symbols-outlined">menu_book</span>
           </button>
@@ -1223,6 +1276,12 @@ export default function App() {
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (!target.closest('button') && !target.closest('a')) {
+            setIsUiVisible(prev => !prev);
+          }
+        }}
       >
         {/* Ken Burns Background */}
         <div className="absolute inset-0 ken-burns-bg bg-center bg-no-repeat"
@@ -1253,17 +1312,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* Persistent UI Toggle Button */}
-            <div className="absolute top-20 md:top-24 right-4 md:right-6 z-[60] flex flex-col items-center pointer-events-auto" style={{ marginTop: '160px' }}>
-              <button onClick={(e) => { 
-                  e.stopPropagation(); 
-                  setIsUiVisible(prev => !prev);
-                }}
-                className={`bg-black/50 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-3 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all opacity-100 ${!isUiVisible ? 'text-on-surface-variant' : 'text-primary bg-surface-container-high'}`}
-                title="Toggle UI">
-                <span className="material-symbols-outlined text-xl">{isUiVisible ? 'visibility' : 'visibility_off'}</span>
-              </button>
-            </div>
 
             {/* Centered Paragraph Display */}
             <div className="relative z-10 flex items-center justify-center w-full h-full px-6 md:px-16 py-20">

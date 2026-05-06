@@ -11,6 +11,7 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
   const [imageStyle, setImageStyle] = useState('cinematic');
   const [isStretchImage, setIsStretchImage] = useState(false);
   const [autoImageInterval, setAutoImageInterval] = useState(30);
+  const [tiktokVoice, setTiktokVoice] = useState('en_us_001');
   
   // Local AI Settings
   const [imageProvider, setImageProvider] = useState<'cloud' | 'local'>('cloud');
@@ -33,6 +34,9 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
     const savedInterval = localStorage.getItem('AUTO_IMAGE_INTERVAL');
     setAutoImageInterval(savedInterval ? parseInt(savedInterval, 10) : 30);
 
+    const savedVoice = localStorage.getItem('TIKTOK_TTS_VOICE');
+    if (savedVoice) setTiktokVoice(savedVoice);
+
     const savedProvider = localStorage.getItem('IMAGE_GEN_PROVIDER') as 'cloud' | 'local';
     if (savedProvider) setImageProvider(savedProvider);
     
@@ -47,6 +51,7 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
     localStorage.setItem('STRETCH_IMAGE', isStretchImage ? 'true' : 'false');
     localStorage.setItem('IMAGE_GEN_PROVIDER', imageProvider);
     localStorage.setItem('AUTO_IMAGE_INTERVAL', autoImageInterval.toString());
+    localStorage.setItem('TIKTOK_TTS_VOICE', tiktokVoice);
 
     if (onSave) onSave();
 
@@ -181,6 +186,28 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
             <option value="comic-book">Graphic Novel / Comic Cells</option>
             <option value="pixel-art">2D Pixel Art</option>
             <option value="character-portraits">Character Portraits</option>
+          </select>
+        </div>
+
+        {/* TikTok TTS Voice Options */}
+        <div className="mb-4">
+          <label className="block text-on-surface text-sm font-body mb-2">Narration Voice (TikTok TTS)</label>
+          <select
+            value={tiktokVoice}
+            onChange={(e) => setTiktokVoice(e.target.value)}
+            className="w-full bg-surface-container-highest border border-outline-variant text-on-surface p-3 rounded-lg focus:outline-none focus:border-primary transition-colors appearance-none cursor-pointer"
+          >
+            <option value="en_us_001">English US - Female</option>
+            <option value="en_us_006">English US - Male 1</option>
+            <option value="en_us_007">English US - Male 2</option>
+            <option value="en_us_ghostface">Ghostface</option>
+            <option value="en_us_chewbacca">Chewbacca</option>
+            <option value="en_us_c3po">C-3PO</option>
+            <option value="en_us_stitch">Stitch</option>
+            <option value="en_uk_001">English UK - Male 1</option>
+            <option value="en_uk_003">English UK - Male 2</option>
+            <option value="en_au_001">English AU - Female</option>
+            <option value="en_au_002">English AU - Male</option>
           </select>
         </div>
 
