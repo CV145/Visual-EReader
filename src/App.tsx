@@ -1301,35 +1301,31 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Scroll Arrow Buttons — visible only when content overflows */}
-                {canScrollUp && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const el = vnTextBoxRef.current;
-                      if (el) el.scrollBy({ top: -(el.clientHeight * 0.6), behavior: 'smooth' });
-                    }}
-                    className="absolute -left-12 md:-left-14 top-1/2 -translate-y-[calc(50%+24px)] w-10 h-10 rounded-full bg-black/60 hover:bg-primary/40 border border-white/20 hover:border-primary/50 text-white/80 hover:text-white flex items-center justify-center backdrop-blur-md transition-all cursor-pointer shadow-lg"
-                    title="Scroll up"
-                    aria-label="Scroll text up"
-                  >
-                    <span className="material-symbols-outlined text-xl">keyboard_arrow_up</span>
-                  </button>
-                )}
-                {canScrollDown && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const el = vnTextBoxRef.current;
-                      if (el) el.scrollBy({ top: el.clientHeight * 0.6, behavior: 'smooth' });
-                    }}
-                    className="absolute -left-12 md:-left-14 top-1/2 translate-y-[calc(-50%+24px)] w-10 h-10 rounded-full bg-black/60 hover:bg-primary/40 border border-white/20 hover:border-primary/50 text-white/80 hover:text-white flex items-center justify-center backdrop-blur-md transition-all cursor-pointer shadow-lg"
-                    title="Scroll down"
-                    aria-label="Scroll text down"
-                  >
-                    <span className="material-symbols-outlined text-xl">keyboard_arrow_down</span>
-                  </button>
-                )}
+                {/* Scroll Arrow Buttons — always visible */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const el = vnTextBoxRef.current;
+                    if (el) el.scrollBy({ top: -(el.clientHeight * 0.6), behavior: 'smooth' });
+                  }}
+                  className={`absolute -left-12 md:-left-14 top-1/2 -translate-y-[calc(50%+24px)] w-10 h-10 rounded-full bg-black/60 hover:bg-primary/40 border border-white/20 hover:border-primary/50 text-white/80 hover:text-white flex items-center justify-center backdrop-blur-md transition-all cursor-pointer shadow-lg ${!canScrollUp ? 'opacity-20 pointer-events-none' : ''}`}
+                  title="Scroll up"
+                  aria-label="Scroll text up"
+                >
+                  <span className="material-symbols-outlined text-xl">keyboard_arrow_up</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const el = vnTextBoxRef.current;
+                    if (el) el.scrollBy({ top: el.clientHeight * 0.6, behavior: 'smooth' });
+                  }}
+                  className={`absolute -left-12 md:-left-14 top-1/2 translate-y-[calc(-50%+24px)] w-10 h-10 rounded-full bg-black/60 hover:bg-primary/40 border border-white/20 hover:border-primary/50 text-white/80 hover:text-white flex items-center justify-center backdrop-blur-md transition-all cursor-pointer shadow-lg ${!canScrollDown ? 'opacity-20 pointer-events-none' : ''}`}
+                  title="Scroll down"
+                  aria-label="Scroll text down"
+                >
+                  <span className="material-symbols-outlined text-xl">keyboard_arrow_down</span>
+                </button>
               </div>
             </div>
 
