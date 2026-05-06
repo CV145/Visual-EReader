@@ -231,6 +231,7 @@ export default function App() {
   const touchStartY = useRef<number | null>(null);
   const touchStartX = useRef<number | null>(null);
   const swipeHandled = useRef(false);
+  const justSwiped = useRef(false);
 
   // ─── Search State ─────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
@@ -501,6 +502,8 @@ export default function App() {
     // Only trigger if vertical swipe is dominant and exceeds threshold
     if (Math.abs(deltaY) > 50 && Math.abs(deltaY) > deltaX) {
       swipeHandled.current = true;
+      justSwiped.current = true;
+      setTimeout(() => { justSwiped.current = false; }, 300);
       if (deltaY > 0) {
         advanceVnDialogue();
         navigator.vibrate?.(10);
@@ -512,10 +515,6 @@ export default function App() {
   }, [advanceVnDialogue, previousVnDialogue]);
 
   const handleTouchEnd = useCallback(() => {
-    // If no swipe was detected, treat it as a tap to toggle UI
-    if (!swipeHandled.current && touchStartY.current !== null) {
-      setIsUiVisible(prev => !prev);
-    }
     touchStartY.current = null;
     touchStartX.current = null;
   }, []);
@@ -1277,6 +1276,7 @@ export default function App() {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onClick={(e) => {
+          if (justSwiped.current) return;
           const target = e.target as HTMLElement;
           if (!target.closest('button') && !target.closest('a')) {
             setIsUiVisible(prev => !prev);
