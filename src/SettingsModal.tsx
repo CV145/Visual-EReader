@@ -238,7 +238,6 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
             Include characters in generated images (Cloud Only)
           </span>
         </label>
-
         {/* Auto Image Interval */}
         <div className="mb-6">
           <label className="block text-on-surface text-sm font-body mb-2">

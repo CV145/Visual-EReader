@@ -293,10 +293,11 @@ export default function App() {
     if (isQuizEnabled || vnParagraphs.length === 0 || isLoadingImage) return;
     if (autoImageInterval <= 0) return;
 
-    const isMultiple = activeParagraphIndex > 0 && activeParagraphIndex % autoImageInterval === 0;
-    if (isMultiple && activeParagraphIndex !== lastAutoImageIndex.current) {
+    const isTriggerPoint = activeParagraphIndex === 0 || (activeParagraphIndex > 0 && activeParagraphIndex % autoImageInterval === 0);
+    
+    if (isTriggerPoint && activeParagraphIndex !== lastAutoImageIndex.current) {
       lastAutoImageIndex.current = activeParagraphIndex;
-      handleGenerate(autoImageInterval);
+      handleGenerate(activeParagraphIndex === 0 ? 1 : autoImageInterval);
     }
   }, [activeParagraphIndex, vnParagraphs, isQuizEnabled, autoImageInterval, isLoadingImage]);
 
