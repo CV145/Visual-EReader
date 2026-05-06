@@ -224,9 +224,7 @@ export default function App() {
   const hasAutoResumed = useRef(false);
 
   const [persistentSummary, setPersistentSummary] = useState("");
-  const [isSceneControlsVisible, setIsSceneControlsVisible] = useState(true);
   const [isUiVisible, setIsUiVisible] = useState(true);
-  const uiHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartY = useRef<number | null>(null);
   const touchStartX = useRef<number | null>(null);
   const swipeHandled = useRef(false);
@@ -394,8 +392,6 @@ export default function App() {
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); advanceVnDialogue(); }
       if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); previousVnDialogue(); }
       if (e.key.toLowerCase() === 'h') setIsVnTextHidden(prev => !prev);
-      // Any key press resets auto-hide timer
-      resetUiHideTimer();
     };
     window.addEventListener('keydown', handleKeyDown);
 
@@ -460,19 +456,6 @@ export default function App() {
     }
   }, [activeParagraphIndex, vnParagraphs]);
 
-  // ─── Auto-Hide UI Timer ──────────────────────────────────────────────────
-  const resetUiHideTimer = useCallback(() => {
-    setIsUiVisible(true);
-    if (uiHideTimerRef.current) clearTimeout(uiHideTimerRef.current);
-    uiHideTimerRef.current = setTimeout(() => setIsUiVisible(false), 3000);
-  }, []);
-
-  // Start the auto-hide timer when a book loads
-  useEffect(() => {
-    if (bookLoaded) resetUiHideTimer();
-    return () => { if (uiHideTimerRef.current) clearTimeout(uiHideTimerRef.current); };
-  }, [bookLoaded]);
-
   // ─── Touch Swipe Handler ─────────────────────────────────────────────────
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     touchStartY.current = e.touches[0].clientY;
@@ -494,19 +477,17 @@ export default function App() {
         previousVnDialogue();
         navigator.vibrate?.(10);
       }
-      resetUiHideTimer();
     }
-  }, [advanceVnDialogue, previousVnDialogue, resetUiHideTimer]);
+  }, [advanceVnDialogue, previousVnDialogue]);
 
   const handleTouchEnd = useCallback(() => {
     // If no swipe was detected, treat it as a tap to toggle UI
     if (!swipeHandled.current && touchStartY.current !== null) {
       setIsUiVisible(prev => !prev);
-      if (!isUiVisible) resetUiHideTimer();
     }
     touchStartY.current = null;
     touchStartX.current = null;
-  }, [isUiVisible, resetUiHideTimer]);
+  }, []);
 
   // ─── Paragraph Index Effect (Context / Music / TTS) ───────────────────────
   useEffect(() => {
@@ -1207,7 +1188,6 @@ export default function App() {
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        onClick={() => { setIsUiVisible(prev => !prev); if (!isUiVisible) resetUiHideTimer(); }}
       >
         {/* Ken Burns Background */}
         <div className="absolute inset-0 ken-burns-bg bg-center bg-no-repeat"
@@ -1235,6 +1215,18 @@ export default function App() {
                 className="bg-black/70 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-3 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all"
                 title="Expand Image">
                 <span className="material-symbols-outlined text-xl">fullscreen</span>
+              </button>
+            </div>
+
+            {/* Persistent UI Toggle Button */}
+            <div className="absolute top-20 md:top-24 right-4 md:right-6 z-[60] flex flex-col items-center pointer-events-auto" style={{ marginTop: '160px' }}>
+              <button onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setIsUiVisible(prev => !prev);
+                }}
+                className={`bg-black/50 hover:bg-surface-container-high border border-outline-variant/30 text-white rounded-full p-3 shadow-lg flex items-center justify-center cursor-pointer backdrop-blur-md transition-all opacity-100 ${!isUiVisible ? 'text-on-surface-variant' : 'text-primary bg-surface-container-high'}`}
+                title="Toggle UI">
+                <span className="material-symbols-outlined text-xl">{isUiVisible ? 'visibility' : 'visibility_off'}</span>
               </button>
             </div>
 
