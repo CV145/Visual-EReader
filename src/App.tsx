@@ -95,7 +95,7 @@ function QuizModal({
       <div className="bg-surface-container/90 border border-outline-variant/30 rounded-2xl shadow-2xl p-6 w-full max-w-lg flex flex-col gap-4 text-on-surface">
         {quizState === 'generating' && (
           <div className="text-center py-8">
-            <h2 className="text-xl font-display font-bold text-primary mb-2">Analyzing Last 25 Paragraphs...</h2>
+            <h2 className="text-xl font-display font-bold text-primary mb-2">Analyzing Last 30 Paragraphs...</h2>
             <p className="text-on-surface-variant text-sm">Generating a comprehension quiz to test your memory.</p>
           </div>
         )}
@@ -135,13 +135,13 @@ function QuizModal({
           <div className="text-center py-8 flex flex-col gap-4">
             <h2 className="text-2xl font-display font-bold text-red-400">Quiz Failed</h2>
             <p className="text-on-surface-variant text-sm leading-relaxed">
-              You answered incorrectly. You must re-read the last 25 paragraphs before continuing.
+              You answered incorrectly. You must re-read the last 30 paragraphs before continuing.
             </p>
             <button
               onClick={onAcknowledgeFail}
               className="mt-4 bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/50 px-6 py-3 rounded-lg font-bold transition-colors uppercase tracking-widest text-sm"
             >
-              Rewind 25 Paragraphs
+              Rewind 30 Paragraphs
             </button>
           </div>
         )}
@@ -233,7 +233,7 @@ export default function App() {
   const [searchProgress, setSearchProgress] = useState(0);
 
   // ─── Quiz State ───────────────────────────────────────────────────────────
-  const [readingHistory, setReadingHistory] = useState<{text: string, cfi: string}[]>([]);
+  const [lastPassedQuizIndex, setLastPassedQuizIndex] = useState(-1);
   const [quizState, _setQuizState] = useState<'inactive' | 'generating' | 'active' | 'failed'>('inactive');
   const quizStateRef = useRef<'inactive' | 'generating' | 'active' | 'failed'>('inactive');
   const setQuizState = (val: typeof quizState) => {
@@ -244,19 +244,31 @@ export default function App() {
   const [quizFeedback, setQuizFeedback] = useState<{isCorrect: boolean, msg: string} | null>(null);
 
   useEffect(() => {
-    if (readingHistory.length === 25 && quizStateRef.current === 'inactive') {
+    if (vnParagraphs.length === 0 || quizStateRef.current !== 'inactive') return;
+
+    const isMultipleOf30 = activeParagraphIndex > 0 && activeParagraphIndex % 30 === 0;
+    const isEndOfShortChapter = activeParagraphIndex === vnParagraphs.length - 1 && vnParagraphs.length < 30 && activeParagraphIndex > 0;
+    
+    if ((isMultipleOf30 || isEndOfShortChapter) && activeParagraphIndex !== lastPassedQuizIndex) {
       setQuizState('generating');
-      generateQuiz(readingHistory.map(p => p.text).join('\n')).then(q => {
+      
+      let contextLines = [];
+      if (isEndOfShortChapter) {
+        contextLines = vnParagraphs.map(p => p.text);
+      } else {
+        contextLines = vnParagraphs.slice(activeParagraphIndex - 30, activeParagraphIndex).map(p => p.text);
+      }
+      
+      generateQuiz(contextLines.join('\n'), isEndOfShortChapter).then(q => {
         setCurrentQuiz(q);
         setQuizState('active');
         setQuizFeedback(null);
       }).catch(err => {
         console.error("Quiz gen failed completely", err);
         setQuizState('inactive'); // Failsafe
-        setReadingHistory([]);
       });
     }
-  }, [readingHistory]);
+  }, [activeParagraphIndex, vnParagraphs, lastPassedQuizIndex]);
 
   const handleQuizAnswer = (idx: number) => {
     if (!currentQuiz) return;
@@ -269,8 +281,9 @@ export default function App() {
 
     setTimeout(() => {
       if (isCorrect) {
+        setLastPassedQuizIndex(activeParagraphIndex);
         setQuizState('inactive');
-        setReadingHistory([]);
+        handleGenerate(30);
       } else {
         setQuizState('failed');
       }
@@ -279,12 +292,12 @@ export default function App() {
   };
 
   const handleAcknowledgeFail = () => {
-    if (readingHistory.length > 0 && renditionRef.current) {
-      pendingCfi.current = readingHistory[0].cfi;
-      renditionRef.current.display(readingHistory[0].cfi);
+    const targetIndex = Math.max(0, Math.floor(activeParagraphIndex / 30) * 30);
+    if (vnParagraphs.length > 0 && renditionRef.current && vnParagraphs[targetIndex]) {
+      pendingCfi.current = vnParagraphs[targetIndex].cfi;
+      renditionRef.current.display(vnParagraphs[targetIndex].cfi);
     }
     setQuizState('inactive');
-    setReadingHistory([]);
   };
 
   // ─── Settings Load ────────────────────────────────────────────────────────
@@ -312,8 +325,8 @@ export default function App() {
     lyriaRef.current = null;
     setIsMusicPlaying(false);
     setBookLoaded(false);
-    setReadingHistory([]);
     setQuizState('inactive');
+    setLastPassedQuizIndex(-1);
     setVnParagraphs([]);
     setActiveParagraphIndex(0);
     setTocItems([]);
@@ -403,15 +416,6 @@ export default function App() {
   // ─── VN Navigation ────────────────────────────────────────────────────────
   const advanceVnDialogue = useCallback(() => {
     if (quizStateRef.current !== 'inactive') return; // Block navigation
-
-    // Track reading history
-    const currentParagraph = vnParagraphs[activeParagraphIndex];
-    if (currentParagraph) {
-        setReadingHistory(prev => {
-            if (prev.length >= 25) return prev; // Wait for quiz to clear it
-            return [...prev, {text: currentParagraph.text, cfi: currentParagraph.cfi}];
-        });
-    }
 
     if (activeParagraphIndex < vnParagraphs.length - 1) {
       const nextIndex = activeParagraphIndex + 1;
@@ -708,7 +712,7 @@ export default function App() {
   const navigateToHref = async (href: string) => {
     if (!renditionRef.current || !bookRef.current) return;
     setIsDrawerOpen(false);
-    setReadingHistory([]); // Reset on jump
+    setLastPassedQuizIndex(-1); // Reset on jump
 
     // Tell epub.js to load the chapter, then set isInternalVnNavigation
     // so the relocated handler doesn't interfere.
@@ -782,7 +786,7 @@ export default function App() {
   const navigateToBookmark = (bm: Bookmark) => {
     pendingCfi.current = bm.cfi;
     pendingBookmarkIndex.current = bm.paragraphIndex ?? null;
-    setReadingHistory([]); // Reset on jump
+    setLastPassedQuizIndex(-1); // Reset on jump
     renditionRef.current?.display(bm.cfi);
     setIsDrawerOpen(false);
   };
@@ -811,11 +815,11 @@ export default function App() {
   };
 
 // ─── Image Generation ─────────────────────────────────────────────────────
-  const handleGenerate = async () => {
+  const handleGenerate = async (contextLength: number = 50) => {
     if (!activeBook) { alert("Please open a book first!"); return; }
     
-    // Pass the next 50 paragraphs from the current one as context
-    const contextForImage = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 50).map(p => p.text).join('\n');
+    // Pass the next contextLength paragraphs from the current one as context
+    const contextForImage = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + contextLength).map(p => p.text).join('\n');
     if (!contextForImage) { alert("Please read a few pages first!"); return; }
 
     setIsLoadingImage(true);

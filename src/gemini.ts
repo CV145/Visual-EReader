@@ -231,18 +231,19 @@ export interface Quiz {
   questions: QuizQuestion[];
 }
 
-export async function generateQuiz(contextText: string): Promise<Quiz> {
+export async function generateQuiz(contextText: string, isChapterEnd: boolean = false): Promise<Quiz> {
   const ai = getClient();
+  const questionText = isChapterEnd ? "What was this chapter about?" : "What were the last 30 paragraphs about?";
   const prompt = `You are a Reading Comprehension Teacher. Based on the following story excerpt, generate a 1-question multiple-choice quiz.
-  The question MUST ALWAYS be EXACTLY: "What were the last 25 paragraphs about?"
-  You must provide exactly 5 options. One of the options must be the correct summary of the excerpt, and the other 4 must be plausible but incorrect summaries.
-  Indicate the correct answer using a 0-based index (0, 1, 2, 3, or 4).
+  The question MUST ALWAYS be EXACTLY: "${questionText}"
+  You must provide exactly 3 options. One of the options must be the correct summary of the excerpt, and the other 2 must be plausible but incorrect summaries.
+  Indicate the correct answer using a 0-based index (0, 1, or 2).
   Output ONLY a valid JSON object matching this schema:
   {
     "questions": [
       {
-        "question": "What were the last 25 paragraphs about?",
-        "options": ["Option A", "Option B", "Option C", "Option D", "Option E"],
+        "question": "${questionText}",
+        "options": ["Option A", "Option B", "Option C"],
         "answerIndex": 0
       }
     ]
@@ -261,7 +262,7 @@ export async function generateQuiz(contextText: string): Promise<Quiz> {
     const raw = (response.text || '{}').trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
     const parsed = JSON.parse(raw);
     
-    if (parsed && Array.isArray(parsed.questions) && parsed.questions.length === 1 && parsed.questions[0].options.length === 5) {
+    if (parsed && Array.isArray(parsed.questions) && parsed.questions.length === 1 && parsed.questions[0].options.length === 3) {
       return parsed as Quiz;
     } else {
       throw new Error("Invalid quiz format returned by AI.");
@@ -272,15 +273,13 @@ export async function generateQuiz(contextText: string): Promise<Quiz> {
     return {
       questions: [
         {
-          question: "What were the last 25 paragraphs about?",
+          question: questionText,
           options: [
             "A technical error occurred in the simulation.",
-            "The characters sat in silence.",
             "I couldn't generate the summary. API Error.",
-            "Everyone fell asleep.",
-            "They went on a long journey."
+            "Everyone fell asleep."
           ],
-          answerIndex: 2
+          answerIndex: 1
         }
       ]
     };
