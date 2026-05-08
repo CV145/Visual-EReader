@@ -665,22 +665,39 @@ export default function App() {
         const chunks = splitHtmlIntoWordChunks(htmlContent, 4);
         if (chunks.length === 0) chunks.push(displayText.trim());
 
-        // Also build TTS-only chunks (plain text, same word grouping)
-        const ttsWords = ttsText.split(/\s+/).filter(w => w.length > 0);
-        const ttsChunks: string[] = [];
-        for (let i = 0; i < ttsWords.length; i += 4) {
-          ttsChunks.push(ttsWords.slice(i, i + 4).join(' '));
+        // Build a char-index to chunk-index map to sync visual chunks with continuous audio
+        const charToChunkMap: number[] = new Array(ttsText.length + 1).fill(0);
+        let wordIndex = 0;
+        let lastChar = 0;
+        const wordRegex = /\S+/g;
+        let match;
+        
+        while ((match = wordRegex.exec(ttsText)) !== null) {
+          const start = match.index;
+          const chunkIdx = Math.floor(wordIndex / 4);
+          for (let i = lastChar; i <= start; i++) {
+            charToChunkMap[i] = chunkIdx;
+          }
+          // The word itself maps to chunkIdx
+          for (let i = start; i < start + match[0].length; i++) {
+            charToChunkMap[i] = chunkIdx;
+          }
+          lastChar = start + match[0].length;
+          wordIndex++;
+        }
+        // Fill remaining trailing chars
+        for (let i = lastChar; i < charToChunkMap.length; i++) {
+          charToChunkMap[i] = Math.floor((wordIndex > 0 ? wordIndex - 1 : 0) / 4);
         }
 
         setCurrentChunks(chunks);
         setCurrentChunkIndex(0);
 
-        // Speak chunks sequentially using onend chaining
-        let chunkIdx = 0;
-        const speakNext = () => {
-          if (interrupted || chunkIdx >= chunks.length) return;
+        // Speak the entire string continuously, updating visual chunks on word boundaries
+        const speakAll = () => {
+          if (interrupted) return;
           
-          const utterance = new SpeechSynthesisUtterance(ttsChunks[chunkIdx] || chunks[chunkIdx]);
+          const utterance = new SpeechSynthesisUtterance(ttsText);
           utterance.rate = ttsSpeed * 0.85; // slightly slower for natural pacing
           utterance.pitch = 1;
           
@@ -691,39 +708,31 @@ export default function App() {
             || voices[0];
           if (preferredVoice) utterance.voice = preferredVoice;
           
-          setCurrentChunkIndex(chunkIdx);
-          
-          utterance.onend = () => {
-            chunkIdx++;
-            if (!interrupted) {
-              if (chunkIdx < chunks.length) {
-                speakNext();
-              } else {
-                // Loop back like a TikTok reel — pause at end, then pause at start
-                setTimeout(() => {
-                  if (!interrupted) {
-                    chunkIdx = 0;
-                    setCurrentChunkIndex(0);
-                    // 1s delay before the loop starts speaking again
-                    setTimeout(() => {
-                      if (!interrupted) speakNext();
-                    }, 1000);
-                  }
-                }, 1500);
-              }
+          utterance.onboundary = (e) => {
+            if (e.name === 'word') {
+              setCurrentChunkIndex(charToChunkMap[e.charIndex] || 0);
             }
           };
-          utterance.onerror = () => {
-            chunkIdx++;
-            if (!interrupted && chunkIdx < chunks.length) {
-              speakNext();
+          
+          utterance.onend = () => {
+            if (!interrupted) {
+              // Loop back like a TikTok reel — pause at end, then pause at start
+              setTimeout(() => {
+                if (!interrupted) {
+                  setCurrentChunkIndex(0);
+                  // 1s delay before the loop starts speaking again
+                  setTimeout(() => {
+                    if (!interrupted) speakAll();
+                  }, 1000);
+                }
+              }, 1500);
             }
           };
           
           window.speechSynthesis.speak(utterance);
         };
 
-        speakNext();
+        speakAll();
       }
     }
 
