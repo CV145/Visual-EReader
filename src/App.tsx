@@ -592,6 +592,9 @@ export default function App() {
       const sliceAhead = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 20);
       const rawText = sliceAhead.map((p: any) => p.text).join(' ');
       const finalPayload = rawText.split(' ').slice(0, 5000).join(' ');
+      
+      console.log(`[STATE] Rendered with vnParagraphs.length=${vnParagraphs.length}, activeParagraphIndex=${activeParagraphIndex}`);
+      
       if (finalPayload.length > 10) {
         setCurrentContextText(finalPayload);
         if (activeParagraphIndex % 3 === 0) {
@@ -796,19 +799,29 @@ export default function App() {
         renditionRef.current.themes.fontSize(`${fontSize}%`);
 
         loadLocation(bookId).then((loc) => {
-          if (loc) renditionRef.current.display(loc).catch(() => renditionRef.current.display());
+          if (loc) {
+            pendingCfi.current = loc; // So relocated handler can find the exact paragraph
+            renditionRef.current.display(loc).catch(() => renditionRef.current.display());
+          }
           else renditionRef.current.display();
         }).catch(() => renditionRef.current.display());
 
+        renditionRef.current.off('relocated');
         renditionRef.current.on('relocated', (location: any) => {
           try {
-            if (!location?.start?.cfi) return;
+            console.log(`[RELOCATED] Raw event payload:`, location);
+            if (!location?.start?.cfi) {
+              console.warn(`[RELOCATED] ⚠️ No location.start.cfi found. Aborting handler.`);
+              return;
+            }
             saveLocation(bookId, location.start.cfi);
             setCurrentCfi(location.start.cfi);
 
             try {
               const spineItem = bookRef.current.spine.get(location.start.cfi);
+              console.log(`[RELOCATED] 📥 Event fired! CFI: ${location.start.cfi}`);
               if (spineItem) {
+                console.log(`[RELOCATED] 📚 Spine item resolved to: ${spineItem.href}`);
                 const toc = bookRef.current.navigation?.toc;
                 if (toc?.length > 0) {
                   const findChapter = (items: any[], href: string): any => {
@@ -827,7 +840,11 @@ export default function App() {
                 setTimeout(() => {
                   try {
                     const startRange = renditionRef.current.getRange(location.start.cfi);
-                    if (!startRange) return;
+                    if (!startRange) {
+                      console.warn(`[RELOCATED] ⚠️ getRange() returned null for CFI! Aborting paragraph rebuild.`);
+                      return;
+                    }
+                    console.log(`[RELOCATED] ✅ getRange() success! Building paragraphs for: ${spineItem.href}`);
                     const activeDoc = startRange.startContainer.ownerDocument;
                     const allContents = renditionRef.current.getContents() || [];
                     const correctContents = allContents.find((c: any) => c.document === activeDoc) || allContents[0];
@@ -836,15 +853,14 @@ export default function App() {
                     let targetElement: Node | null = null;
                     let forcedIndex: number | null = null;
 
-                    const activeCfiToResolve = pendingCfi.current || location.start.cfi;
-                    if (activeCfiToResolve) {
+                    if (pendingCfi.current) {
                       try {
-                        const r = renditionRef.current.getRange(activeCfiToResolve);
+                        const r = renditionRef.current.getRange(pendingCfi.current);
                         if (r) targetElement = r.startContainer;
                       } catch (e) { console.error("Could not resolve CFI to node:", e); }
                     }
 
-                    if (!targetElement && forcedIndex === null && !activeCfiToResolve) forcedIndex = 0;
+                    if (!targetElement && forcedIndex === null && !pendingCfi.current) forcedIndex = 0;
 
                     const rawElements = activeDoc.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
 
@@ -856,7 +872,7 @@ export default function App() {
                         if (mappedIdx >= 0 && mappedIdx < graphRef.length) return mappedIdx;
                       }
                       
-                      const targetCfi = pendingCfi.current || location.start.cfi;
+                      const targetCfi = pendingCfi.current;
                       if (targetCfi) {
                         pendingCfi.current = null;
                         let bestIdx = 0;
@@ -952,52 +968,80 @@ export default function App() {
 
   const navigateToHref = async (href: string) => {
     if (!renditionRef.current || !bookRef.current) return;
+    
+    console.log(`[TOC] 🚀 USER CLICKED TOC ENTRY: ${href}`);
     setIsDrawerOpen(false);
-    setLastPassedQuizIndex(-1); // Reset on jump
+    setLastPassedQuizIndex(-1);
 
-    // Tell epub.js to load the chapter, then set isInternalVnNavigation
-    // so the relocated handler doesn't interfere.
-    isInternalVnNavigation.current = true;
-    await renditionRef.current.display(href);
-
-    // After epub.js finishes loading, directly grab the chapter's document
-    // and build our paragraph graph from it. No relying on relocated.
     try {
+      // 1. Tell epub.js to render the chapter and await completion
+      await renditionRef.current.display(href);
+      
+      // 2. Wait an extra 100ms for safety to ensure DOM is fully flushed
+      await new Promise(r => setTimeout(r, 100));
+      
+      // 3. Extract the DOM directly from the loaded rendition
       const targetFileBase = href.split('#')[0].split('/').pop() || '';
-      const allContents = renditionRef.current?.getContents() || [];
-
-      // Find the loaded document matching the requested chapter file
-      const targetContents = allContents.find((c: any) => {
-        const docUrl = c.document?.URL || c.document?.baseURI || '';
-        return docUrl.includes(targetFileBase);
-      });
-
-      if (!targetContents?.document) {
-        console.warn('[TOC] Could not find document for', href, '— falling back to relocated handler.');
-        isInternalVnNavigation.current = false; // Let relocated handle it
+      const allContents = renditionRef.current.getContents() || [];
+      const activeContents = allContents.find((c: any) => c.document?.URL?.includes(targetFileBase)) || allContents[0];
+      
+      if (!activeContents || !activeContents.document) {
+        console.warn('[TOC] ⚠️ Could not find document after display!');
         return;
       }
-
-      const activeDoc = targetContents.document;
-      const rawElements = activeDoc.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
+      
+      // 4. Build paragraph graph
+      const rawElements = activeContents.document.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
       const chapterGraph: VnParagraph[] = [];
-
       rawElements.forEach((element: Element) => {
         const txt = element.textContent?.trim();
         if (txt && txt.length > 5) {
-          const nativeCfi = targetContents.cfiFromNode(element);
+          const nativeCfi = activeContents.cfiFromNode(element);
           if (nativeCfi) {
             chapterGraph.push({ text: txt, cfi: nativeCfi, html: element.innerHTML });
           }
         }
       });
-
+      
       if (chapterGraph.length > 0) {
-        // Update spine tracking
+        // 5. Update Spine tracking so relocated handler doesn't double-rebuild
         const spineFile = href.split('#')[0];
         lastSpineHrefRef.current = bookRef.current.spine.get(spineFile)?.href || spineFile;
-
-        // Update chapter title
+        
+        // 6. Handle Anchor Hashes (#section2)
+        const hash = href.split('#')[1];
+        let targetIdx = 0;
+        
+        if (hash) {
+          const targetElement = activeContents.document.getElementById(hash);
+          console.log(`[TOC] Resolving anchor: #${hash}. targetElement found:`, !!targetElement);
+          
+          if (targetElement) {
+            let found = false;
+            let idxCount = 0;
+            rawElements.forEach((el: Element) => {
+               const txt = el.textContent?.trim();
+               if (txt && txt.length > 5) {
+                 if (!found) {
+                   if (el === targetElement || el.contains(targetElement)) {
+                     targetIdx = idxCount; found = true;
+                     console.log(`[TOC] Anchor exactly matches or is inside element at index ${idxCount}`);
+                   } else {
+                     const pos = el.compareDocumentPosition(targetElement);
+                     if (pos & Node.DOCUMENT_POSITION_PRECEDING) {
+                       targetIdx = Math.max(0, idxCount - 1); // Land on the paragraph *before* the target if we passed it, or 0
+                       found = true;
+                       console.log(`[TOC] Anchor precedes element at index ${idxCount}. Snapping to ${targetIdx}`);
+                     }
+                   }
+                 }
+                 idxCount++;
+               }
+            });
+          }
+        }
+        
+        // 7. Update Chapter Title
         const toc = bookRef.current.navigation?.toc;
         if (toc) {
           const findCh = (items: any[], h: string): any => {
@@ -1010,17 +1054,18 @@ export default function App() {
           const ch = findCh(toc, spineFile);
           if (ch) setChapterTitle(ch.label);
         }
-
+        
+        // 8. Commit to state
         setVnParagraphs(chapterGraph);
-        setActiveParagraphIndex(0);
-
-        // Sync epub.js rendition to paragraph 0's CFI
+        setActiveParagraphIndex(targetIdx);
+        
+        // 9. Force sync the exact paragraph CFI so epub.js is locked to our view
         isInternalVnNavigation.current = true;
-        renditionRef.current?.display(chapterGraph[0].cfi);
+        await renditionRef.current.display(chapterGraph[targetIdx].cfi);
+        console.log(`[TOC] ✅ Paragraph graph built successfully. Snapped to index: ${targetIdx}`);
       }
     } catch (err) {
-      console.error('[TOC] Error building chapter graph:', err);
-      isInternalVnNavigation.current = false;
+      console.error('[TOC] Navigation error:', err);
     }
   };
 
