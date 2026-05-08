@@ -12,6 +12,7 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
   const [isStretchImage, setIsStretchImage] = useState(false);
   const [autoImageInterval, setAutoImageInterval] = useState(30);
   const [tiktokVoice, setTiktokVoice] = useState('en_us_001');
+  const [isTiktokMode, setIsTiktokMode] = useState(false);
   
   // Local AI Settings
   const [imageProvider, setImageProvider] = useState<'cloud' | 'local'>('cloud');
@@ -37,6 +38,9 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
     const savedVoice = localStorage.getItem('TIKTOK_TTS_VOICE');
     if (savedVoice) setTiktokVoice(savedVoice);
 
+    const savedTiktokMode = localStorage.getItem('TIKTOK_MODE');
+    setIsTiktokMode(savedTiktokMode === 'true');
+
     const savedProvider = localStorage.getItem('IMAGE_GEN_PROVIDER') as 'cloud' | 'local';
     if (savedProvider) setImageProvider(savedProvider);
     
@@ -52,6 +56,7 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
     localStorage.setItem('IMAGE_GEN_PROVIDER', imageProvider);
     localStorage.setItem('AUTO_IMAGE_INTERVAL', autoImageInterval.toString());
     localStorage.setItem('TIKTOK_TTS_VOICE', tiktokVoice);
+    localStorage.setItem('TIKTOK_MODE', isTiktokMode ? 'true' : 'false');
 
     if (onSave) onSave();
 
@@ -236,6 +241,18 @@ export function SettingsModal({ isOpen, onClose, onSave }: {
           />
           <span className="text-on-surface font-body text-sm group-hover:text-primary transition-colors select-none">
             Include characters in generated images (Cloud Only)
+          </span>
+        </label>
+
+        <label className="flex items-center gap-3 cursor-pointer mb-6 group">
+          <input 
+            type="checkbox"
+            checked={isTiktokMode}
+            onChange={(e) => setIsTiktokMode(e.target.checked)}
+            className="w-5 h-5 rounded border-2 border-outline-variant bg-surface-container-highest accent-primary cursor-pointer"
+          />
+          <span className="text-on-surface font-body text-sm group-hover:text-primary transition-colors select-none">
+            TikTok Reels Mode (Read text line-by-line with TTS)
           </span>
         </label>
         {/* Auto Image Interval */}

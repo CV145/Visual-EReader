@@ -164,7 +164,9 @@ export default function App() {
   const [currentContextText, setCurrentContextText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
-  const [isTtsEnabled, setIsTtsEnabled] = useState(false);
+  const [isTiktokMode, setIsTiktokMode] = useState(false);
+  const [currentChunks, setCurrentChunks] = useState<string[]>([]);
+  const [currentChunkIndex, setCurrentChunkIndex] = useState(-1);
   const [currentAudioPrompt, setCurrentAudioPrompt] = useState('');
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [showSafetyPopup, setShowSafetyPopup] = useState(false);
@@ -335,11 +337,13 @@ export default function App() {
   // ─── Settings Load ────────────────────────────────────────────────────────
   const loadSettings = () => {
     setIsStretchImage(localStorage.getItem('STRETCH_IMAGE') === 'true');
+    setIsTiktokMode(localStorage.getItem('TIKTOK_MODE') === 'true');
     const savedFontSize = localStorage.getItem('FONT_SIZE');
     if (savedFontSize) setFontSizeState(parseInt(savedFontSize, 10));
   };
 
   const handleSettingsSave = () => {
+    setIsTiktokMode(localStorage.getItem('TIKTOK_MODE') === 'true');
     const saved = localStorage.getItem('IMAGE_GEN_PROVIDER');
     if (saved === 'local' || saved === 'cloud') {
       setImageGenProvider(saved);
@@ -563,107 +567,76 @@ export default function App() {
         }
       }
 
-      // TTS: speak paragraph text using TikTok TTS
-      if (isTtsEnabled && activeNode) {
-        if (currentTtsAudioRef.current) {
-          currentTtsAudioRef.current.pause();
-          currentTtsAudioRef.current = null;
-        }
+      // TTS: speak paragraph text using browser SpeechSynthesis (instant, no network)
+      if (isTiktokMode && activeNode) {
         window.speechSynthesis.cancel();
 
-        const playTikTokAudio = async () => {
-          try {
-            // Sanitize text for TikTok TTS (which fails on special quotes, dashes, etc.)
-            const sanitizedText = activeNode.text
-              .replace(/[“”"]/g, '')
-              .replace(/[‘’]/g, "'")
-              .replace(/—/g, ', ')
-              .replace(/…/g, '...')
-              .replace(/&/g, 'and')
-              .replace(/\*/g, '');
+        const sanitizedText = activeNode.text
+          .replace(/["\u201c\u201d]/g, '')
+          .replace(/['\u2018\u2019]/g, "'")
+          .replace(/\u2014/g, ', ')
+          .replace(/\u2026/g, '...')
+          .replace(/&/g, 'and')
+          .replace(/\*/g, '');
 
-            // Split paragraph into manageable chunks (under 250 chars)
-            const sentences = sanitizedText.match(/[^.!?]+[.!?]*/g) || [sanitizedText];
-            let chunks: string[] = [];
-            let curr = "";
+        // Split into 3-5 word groups for TikTok-style captions
+        const words = sanitizedText.split(/\s+/).filter(w => w.length > 0);
+        let chunks: string[] = [];
 
-            for (const s of sentences) {
-              if (s.length >= 250) {
-                // If a single sentence is huge, split it by spaces
-                const words = s.split(' ');
-                for (const w of words) {
-                  if (curr.length + w.length + 1 < 250) {
-                    curr += (curr ? ' ' : '') + w;
-                  } else {
-                    if (curr.trim()) chunks.push(curr.trim());
-                    curr = w;
-                  }
-                }
-              } else if (curr.length + s.length + 1 < 250) {
-                curr += (curr ? ' ' : '') + s.trim();
-              } else {
-                if (curr.trim()) chunks.push(curr.trim());
-                curr = s.trim();
-              }
-            }
-            if (curr.trim()) chunks.push(curr.trim());
+        for (let i = 0; i < words.length; i += 4) {
+          chunks.push(words.slice(i, i + 4).join(' '));
+        }
 
-            for (const chunk of chunks) {
-              if (interrupted || !isTtsEnabled) return;
-              if (!chunk) continue;
-              
-              const voice = localStorage.getItem('TIKTOK_TTS_VOICE') || 'en_us_001';
-              const res = await fetch("https://ottsy.weilbyte.dev/api/generation", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: chunk, voice })
-              });
-              
-              if (!res.ok) throw new Error("TTS API Error");
-              const data = await res.json();
-              if (interrupted || !isTtsEnabled) return;
-              
-              if (data.data) {
-                await new Promise<void>((resolve) => {
-                  if (!currentTtsAudioRef.current) {
-                    currentTtsAudioRef.current = new Audio();
-                  }
-                  const audio = currentTtsAudioRef.current;
-                  audio.src = "data:audio/mpeg;base64," + data.data;
-                  audio.playbackRate = ttsSpeed;
-                  
-                  audio.onended = () => resolve();
-                  audio.onerror = () => resolve(); // continue even if one chunk fails
-                  audio.play().catch(e => { console.error("Audio play failed:", e); resolve(); });
-                });
-              }
+        if (chunks.length === 0) chunks = [sanitizedText.trim()];
+
+        setCurrentChunks(chunks);
+        setCurrentChunkIndex(0);
+
+        // Speak chunks sequentially using onend chaining
+        let chunkIdx = 0;
+        const speakNext = () => {
+          if (interrupted || chunkIdx >= chunks.length) return;
+          
+          const utterance = new SpeechSynthesisUtterance(chunks[chunkIdx]);
+          utterance.rate = ttsSpeed * 0.85; // slightly slower for natural pacing
+          utterance.pitch = 1;
+          
+          // Try to pick a good voice
+          const voices = window.speechSynthesis.getVoices();
+          const preferredVoice = voices.find(v => v.name.includes('Samantha')) 
+            || voices.find(v => v.lang.startsWith('en') && v.localService)
+            || voices[0];
+          if (preferredVoice) utterance.voice = preferredVoice;
+          
+          setCurrentChunkIndex(chunkIdx);
+          
+          utterance.onend = () => {
+            chunkIdx++;
+            if (!interrupted && chunkIdx < chunks.length) {
+              // Small pause between chunks for natural pacing
+              setTimeout(() => speakNext(), 250);
             }
-            
-            if (!interrupted && isTtsEnabled) {
-              advanceVnDialogue();
+          };
+          utterance.onerror = () => {
+            chunkIdx++;
+            if (!interrupted && chunkIdx < chunks.length) {
+              speakNext();
             }
-          } catch (err) {
-            console.error("TikTok TTS Error:", err);
-            // If the API completely fails, just fallback to advancing the text
-            if (!interrupted && isTtsEnabled) {
-              setTimeout(() => {
-                if (!interrupted && isTtsEnabled) advanceVnDialogue();
-              }, 2000);
-            }
-          }
+          };
+          
+          window.speechSynthesis.speak(utterance);
         };
 
-        playTikTokAudio();
+        speakNext();
       }
     }
 
     return () => {
       interrupted = true;
-      if (currentTtsAudioRef.current) {
-        currentTtsAudioRef.current.pause();
-      }
+      window.speechSynthesis.cancel();
+      setCurrentChunkIndex(-1);
     };
-  }, [activeParagraphIndex, vnParagraphs, isMusicPlaying, isTtsEnabled, activeBook, advanceVnDialogue]);
+  }, [activeParagraphIndex, vnParagraphs, isMusicPlaying, isTiktokMode, activeBook, advanceVnDialogue]);
 
   // ─── Passive Scene Character Detection ────────────────────────────────────
   // No AI — simple name-match per paragraph. Fast and free.
@@ -1113,20 +1086,6 @@ export default function App() {
     }
   };
 
-  // ─── TTS ──────────────────────────────────────────────────────────────────
-  const toggleTts = () => {
-    if (isTtsEnabled) {
-      if (currentTtsAudioRef.current) {
-        currentTtsAudioRef.current.pause();
-        currentTtsAudioRef.current = null;
-      }
-      window.speechSynthesis.cancel();
-      setIsTtsEnabled(false);
-    } else {
-      setIsTtsEnabled(true);
-    }
-  };
-
   // ─── Delete character ─────────────────────────────────────────────────────
   const deleteCharacter = async (name: string) => {
     if (!activeBook) return;
@@ -1233,7 +1192,7 @@ export default function App() {
               lyriaRef.current?.stop?.();
               lyriaRef.current = null;
               window.speechSynthesis.cancel();
-              setIsMusicPlaying(false); setIsTtsEnabled(false);
+              setIsMusicPlaying(false); setIsTiktokMode(false);
               setActiveBook(null); setBookLoaded(false); setVnParagraphs([]);
             }}
             title="Back to Library"
@@ -1326,17 +1285,32 @@ export default function App() {
                   }}
                 >
                   {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? (
-                    <div
-                      key={activeParagraphIndex}
-                      className="paragraph-enter font-body leading-[2] tracking-wide rounded-2xl p-6 md:p-8 epub-html-content backdrop-blur-sm"
-                      style={{
-                        fontSize: `${((fontSize / 100) * 1.6).toFixed(2)}rem`,
-                        backgroundColor: 'rgba(0,0,0,0.45)',
-                        color: 'rgba(243, 244, 246, 1)',
-                        borderLeft: '3px solid rgba(198, 198, 198, 0.15)',
-                      }}
-                      dangerouslySetInnerHTML={{ __html: vnParagraphs[activeParagraphIndex].html || '' }}
-                    />
+                    isTiktokMode ? (
+                      <div className="flex items-center justify-center min-h-[40vh] p-4">
+                        <p 
+                          className="font-headline font-bold text-center tracking-wide text-white" 
+                          style={{ 
+                            fontSize: `${((fontSize / 100) * 2.5).toFixed(2)}rem`,
+                            textShadow: '0px 4px 12px rgba(0,0,0,0.8), 0px 2px 4px rgba(0,0,0,0.6)',
+                            lineHeight: '1.4'
+                          }}
+                        >
+                          {currentChunkIndex >= 0 && currentChunks[currentChunkIndex] ? currentChunks[currentChunkIndex] : ''}
+                        </p>
+                      </div>
+                    ) : (
+                      <div
+                        key={activeParagraphIndex}
+                        className="paragraph-enter font-body leading-[2] tracking-wide rounded-2xl p-6 md:p-8 epub-html-content backdrop-blur-sm"
+                        style={{
+                          fontSize: `${((fontSize / 100) * 1.6).toFixed(2)}rem`,
+                          backgroundColor: 'rgba(0,0,0,0.45)',
+                          color: 'rgba(243, 244, 246, 1)',
+                          borderLeft: '3px solid rgba(198, 198, 198, 0.15)',
+                        }}
+                        dangerouslySetInnerHTML={{ __html: vnParagraphs[activeParagraphIndex].html || '' }}
+                      />
+                    )
                   ) : (
                     <p
                       className="paragraph-enter font-body leading-[2] tracking-wide text-gray-100 rounded-2xl p-6 md:p-8"
