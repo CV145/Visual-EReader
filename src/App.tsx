@@ -459,10 +459,27 @@ export default function App() {
 
   // ─── Generic Paragraph Navigation ─────────────────────────────────────────
   const jumpToParagraph = async (href: string, targetIndex: number = 0, targetCfi?: string) => {
+    console.log(`[NAV DEBUG] jumpToParagraph called with href: "${href}", targetIndex: ${targetIndex}, targetCfi: "${targetCfi}"`);
     if (!renditionRef.current || !bookRef.current) return;
     try {
-      await renditionRef.current.display(href);
-      const targetSection = bookRef.current.spine.get(href.split('#')[0]);
+      let targetHref = href;
+      if (!targetCfi) {
+        const baseHref = href.split('#')[0];
+        let section = bookRef.current.spine.get(baseHref);
+        if (!section) {
+          section = bookRef.current.spine.spineItems.find((item: any) => 
+            item.href.endsWith(baseHref) || baseHref.endsWith(item.href) ||
+            item.href.includes(baseHref) || baseHref.includes(item.href)
+          );
+          if (section) {
+            const hash = href.split('#')[1];
+            targetHref = hash ? `${section.href}#${hash}` : section.href;
+            console.log(`[NAV DEBUG] Loosely resolved "${href}" to "${targetHref}"`);
+          }
+        }
+      }
+
+      const targetSection: any = await renditionRef.current.display(targetCfi || targetHref);
       const targetSectionIndex = targetSection ? targetSection.index : -1;
 
       let activeContents: any = null;
@@ -488,7 +505,7 @@ export default function App() {
       });
       
       if (chapterGraph.length > 0) {
-        lastSpineHrefRef.current = bookRef.current.spine.get(href.split('#')[0])?.href || href.split('#')[0];
+        lastSpineHrefRef.current = targetSection ? targetSection.href : href.split('#')[0];
         
         const toc = bookRef.current.navigation?.toc;
         if (toc) {
@@ -892,14 +909,19 @@ export default function App() {
         });
         renditionRef.current.themes.fontSize(`${fontSize}%`);
 
-        loadLocation(bookId).then(async (loc) => {
-          if (loc && loc.href) {
+        loadLocation(bookId).then(async (loc: any) => {
+          if (typeof loc === 'string') {
+            // Backwards compatibility: loc is an old CFI string
+            const spineItem = bookRef.current?.spine.get(loc);
+            const href = spineItem ? spineItem.href : bookRef.current?.spine.get(0).href;
+            if (href) jumpToParagraph(href, 0, loc);
+          } else if (loc && loc.href) {
             jumpToParagraph(loc.href, loc.index);
-          } else {
+          } else if (bookRef.current) {
             jumpToParagraph(bookRef.current.spine.get(0).href, 0);
           }
         }).catch(async () => {
-          jumpToParagraph(bookRef.current.spine.get(0).href, 0);
+          if (bookRef.current) jumpToParagraph(bookRef.current.spine.get(0).href, 0);
         });
 
         renditionRef.current.off('relocated');
@@ -916,11 +938,17 @@ export default function App() {
   const prevPage = previousVnDialogue;
 
 
-  const navigateToBookmark = (bm: Bookmark) => {
+  const navigateToBookmark = (bm: any) => {
     setLastPassedQuizIndex(-1); // Reset on jump
     setIsDrawerOpen(false);
     if (bookRef.current) {
-      jumpToParagraph(bm.href, bm.index);
+      if (bm.href) {
+        jumpToParagraph(bm.href, bm.index);
+      } else if (bm.cfi) {
+        // Backwards compatibility: old bookmark schema
+        const spineItem = bookRef.current.spine.get(bm.cfi);
+        if (spineItem) jumpToParagraph(spineItem.href, 0, bm.cfi);
+      }
     }
   };
 
@@ -1167,6 +1195,7 @@ export default function App() {
         <li>
           <button 
             onClick={() => {
+              console.log(`[TOC DEBUG] Clicked TOC item: "${item.label}", href: "${item.href}"`);
               setIsDrawerOpen(false);
               setLastPassedQuizIndex(-1);
               jumpToParagraph(item.href, 0);
