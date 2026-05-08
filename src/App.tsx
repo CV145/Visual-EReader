@@ -225,8 +225,7 @@ export default function App() {
   const isNavigatingBackward = useRef(false);
   const isInternalVnNavigation = useRef(false);
   const pendingTocHref = useRef<string | null>(null);
-  const pendingCfi = useRef<string | null>(null);
-  const pendingBookmarkIndex = useRef<number | null>(null);
+
   const hasAutoResumed = useRef(false);
   const currentTtsAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -458,15 +457,22 @@ export default function App() {
     };
   }, [vnParagraphs, activeParagraphIndex]);
 
-  const navigateForwardChapter = async (href: string) => {
+  // ─── Generic Paragraph Navigation ─────────────────────────────────────────
+  const jumpToParagraph = async (href: string, targetIndex: number = 0, targetCfi?: string) => {
     if (!renditionRef.current || !bookRef.current) return;
     try {
       await renditionRef.current.display(href);
-      await new Promise(r => setTimeout(r, 100));
       
       const targetFileBase = href.split('#')[0].split('/').pop() || '';
-      const allContents = renditionRef.current.getContents() || [];
-      const activeContents = allContents.find((c: any) => c.document?.URL?.includes(targetFileBase)) || allContents[0];
+      let activeContents: any = null;
+      let retries = 0;
+      while (retries < 40) { // Up to 2 seconds polling
+        await new Promise(r => setTimeout(r, 50));
+        const allContents = renditionRef.current.getContents() || [];
+        activeContents = allContents.find((c: any) => c.document?.URL?.includes(targetFileBase)) || allContents[0];
+        if (activeContents?.document?.body?.querySelectorAll('p, blockquote').length > 0) break;
+        retries++;
+      }
       
       if (!activeContents || !activeContents.document) return;
       
@@ -496,14 +502,54 @@ export default function App() {
           if (ch) setChapterTitle(ch.label);
         }
         
+        let targetIdx = 0;
+        const hash = href.split('#')[1];
+
+        if (targetCfi) {
+          const epubCfi = new ePub.CFI();
+          for (let i = 0; i < chapterGraph.length; i++) {
+             try {
+               if (epubCfi.compare(chapterGraph[i].cfi, targetCfi) <= 0) targetIdx = i;
+               else break;
+             } catch(e) {}
+          }
+        } else if (targetIndex > 0) {
+          targetIdx = Math.min(targetIndex, chapterGraph.length - 1);
+        } else if (targetIndex === -1) {
+          targetIdx = chapterGraph.length - 1;
+        } else if (hash) {
+          const targetElement = activeContents.document.getElementById(hash);
+          if (targetElement) {
+            let found = false;
+            let idxCount = 0;
+            rawElements.forEach((el: Element) => {
+               const txt = el.textContent?.trim();
+               if (txt && txt.length > 5) {
+                 if (!found) {
+                   if (el === targetElement || el.contains(targetElement)) {
+                     targetIdx = idxCount; found = true;
+                   } else {
+                     const pos = el.compareDocumentPosition(targetElement);
+                     if (pos & Node.DOCUMENT_POSITION_PRECEDING) {
+                       targetIdx = Math.max(0, idxCount - 1);
+                       found = true;
+                     }
+                   }
+                 }
+                 idxCount++;
+               }
+            });
+          }
+        }
+        
         setVnParagraphs(chapterGraph);
-        setActiveParagraphIndex(0);
+        setActiveParagraphIndex(targetIdx);
         isInternalVnNavigation.current = true;
-        await renditionRef.current.display(chapterGraph[0].cfi);
-        console.log(`[NAV] ⏩ Swiped forward into next chapter. Snapped to index: 0`);
+        await renditionRef.current.display(chapterGraph[targetIdx].cfi);
+        console.log(`[NAV] 🚀 Jumped to href: ${href}, Snapped to index: ${targetIdx}`);
       }
     } catch (e) {
-      console.error('[NAV] Forward chapter navigation error:', e);
+      console.error('[NAV] jumpToParagraph error:', e);
     }
   };
 
@@ -519,61 +565,11 @@ export default function App() {
       try {
         const currentSection = bookRef.current.spine.get(lastSpineHrefRef.current);
         if (currentSection && currentSection.index < bookRef.current.spine.length - 1) {
-          navigateForwardChapter(bookRef.current.spine.get(currentSection.index + 1).href);
+          jumpToParagraph(bookRef.current.spine.get(currentSection.index + 1).href, 0);
         }
       } catch(e) {}
     }
   }, [activeParagraphIndex, vnParagraphs]);
-
-  const navigateBackwardChapter = async (href: string) => {
-    if (!renditionRef.current || !bookRef.current) return;
-    try {
-      await renditionRef.current.display(href);
-      await new Promise(r => setTimeout(r, 100));
-      
-      const targetFileBase = href.split('#')[0].split('/').pop() || '';
-      const allContents = renditionRef.current.getContents() || [];
-      const activeContents = allContents.find((c: any) => c.document?.URL?.includes(targetFileBase)) || allContents[0];
-      
-      if (!activeContents || !activeContents.document) return;
-      
-      const rawElements = activeContents.document.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
-      const chapterGraph: VnParagraph[] = [];
-      rawElements.forEach((element: Element) => {
-        const txt = element.textContent?.trim();
-        if (txt && txt.length > 5) {
-          const nativeCfi = activeContents.cfiFromNode(element);
-          if (nativeCfi) chapterGraph.push({ text: txt, cfi: nativeCfi, html: element.innerHTML });
-        }
-      });
-      
-      if (chapterGraph.length > 0) {
-        lastSpineHrefRef.current = bookRef.current.spine.get(href.split('#')[0])?.href || href.split('#')[0];
-        
-        const toc = bookRef.current.navigation?.toc;
-        if (toc) {
-          const findCh = (items: any[], h: string): any => {
-            for (const item of items) {
-              if (h.includes(item.href) || item.href.includes(h)) return item;
-              if (item.subitems) { const sub = findCh(item.subitems, h); if (sub) return sub; }
-            }
-            return null;
-          };
-          const ch = findCh(toc, lastSpineHrefRef.current);
-          if (ch) setChapterTitle(ch.label);
-        }
-        
-        const extremeIdx = chapterGraph.length - 1;
-        setVnParagraphs(chapterGraph);
-        setActiveParagraphIndex(extremeIdx);
-        isInternalVnNavigation.current = true;
-        await renditionRef.current.display(chapterGraph[extremeIdx].cfi);
-        console.log(`[NAV] ⏪ Swiped backward into previous chapter. Snapped to extreme index: ${extremeIdx}`);
-      }
-    } catch (e) {
-      console.error('[NAV] Backward chapter navigation error:', e);
-    }
-  };
 
   const previousVnDialogue = useCallback(() => {
     if (quizStateRef.current !== 'inactive') return; // Block navigation
@@ -586,7 +582,7 @@ export default function App() {
       try {
         const currentSection = bookRef.current.spine.get(lastSpineHrefRef.current);
         if (currentSection && currentSection.index > 0) {
-          navigateBackwardChapter(bookRef.current.spine.get(currentSection.index - 1).href);
+          jumpToParagraph(bookRef.current.spine.get(currentSection.index - 1).href, -1);
         }
       } catch(e) {}
     }
@@ -683,7 +679,7 @@ export default function App() {
       const activeNode = vnParagraphs[activeParagraphIndex];
       if (activeNode && activeBook) {
         setCurrentCfi(activeNode.cfi);
-        saveLocation(activeBook.id, activeNode.cfi);
+        saveLocation(activeBook.id, lastSpineHrefRef.current, activeParagraphIndex);
       }
 
       const sliceAhead = vnParagraphs.slice(activeParagraphIndex, activeParagraphIndex + 20);
@@ -895,165 +891,20 @@ export default function App() {
         });
         renditionRef.current.themes.fontSize(`${fontSize}%`);
 
-        loadLocation(bookId).then((loc) => {
-          if (loc) {
-            pendingCfi.current = loc; // So relocated handler can find the exact paragraph
-            renditionRef.current.display(loc).catch(() => renditionRef.current.display());
+        loadLocation(bookId).then(async (loc) => {
+          if (loc && loc.href) {
+            jumpToParagraph(loc.href, loc.index);
+          } else {
+            jumpToParagraph(bookRef.current.spine.get(0).href, 0);
           }
-          else renditionRef.current.display();
-        }).catch(() => renditionRef.current.display());
+        }).catch(async () => {
+          jumpToParagraph(bookRef.current.spine.get(0).href, 0);
+        });
 
         renditionRef.current.off('relocated');
         renditionRef.current.on('relocated', (location: any) => {
-          try {
-            console.log(`[RELOCATED] Raw event payload:`, location);
-            if (!location?.start?.cfi) {
-              console.warn(`[RELOCATED] ⚠️ No location.start.cfi found. Aborting handler.`);
-              return;
-            }
-            saveLocation(bookId, location.start.cfi);
-            setCurrentCfi(location.start.cfi);
-
-            try {
-              const spineItem = bookRef.current.spine.get(location.start.cfi);
-              console.log(`[RELOCATED] 📥 Event fired! CFI: ${location.start.cfi}`);
-              if (spineItem) {
-                console.log(`[RELOCATED] 📚 Spine item resolved to: ${spineItem.href}`);
-                const toc = bookRef.current.navigation?.toc;
-                if (toc?.length > 0) {
-                  const findChapter = (items: any[], href: string): any => {
-                    for (const item of items) {
-                      if (href.includes(item.href)) return item;
-                      if (item.subitems) { const sub = findChapter(item.subitems, href); if (sub) return sub; }
-                    }
-                    return null;
-                  };
-                  const chapter = findChapter(toc, spineItem.href);
-                  if (chapter) setChapterTitle(chapter.label);
-                }
-
-                if (isInternalVnNavigation.current) { isInternalVnNavigation.current = false; return; }
-
-                setTimeout(() => {
-                  try {
-                    const startRange = renditionRef.current.getRange(location.start.cfi);
-                    if (!startRange) {
-                      console.warn(`[RELOCATED] ⚠️ getRange() returned null for CFI! Aborting paragraph rebuild.`);
-                      return;
-                    }
-                    console.log(`[RELOCATED] ✅ getRange() success! Building paragraphs for: ${spineItem.href}`);
-                    const activeDoc = startRange.startContainer.ownerDocument;
-                    const allContents = renditionRef.current.getContents() || [];
-                    const correctContents = allContents.find((c: any) => c.document === activeDoc) || allContents[0];
-                    if (!correctContents || !activeDoc) return;
-
-                    let targetElement: Node | null = null;
-                    let forcedIndex: number | null = null;
-
-                    if (pendingCfi.current) {
-                      try {
-                        const r = renditionRef.current.getRange(pendingCfi.current);
-                        if (r) targetElement = r.startContainer;
-                      } catch (e) { console.error("Could not resolve CFI to node:", e); }
-                    }
-
-                    if (!targetElement && forcedIndex === null && !pendingCfi.current) forcedIndex = 0;
-
-                    const rawElements = activeDoc.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
-
-                    const resolveTargetIndex = (graphRef: VnParagraph[]) => {
-                      if (pendingBookmarkIndex.current !== null && pendingBookmarkIndex.current !== undefined) {
-                        const mappedIdx = pendingBookmarkIndex.current - 1;
-                        pendingBookmarkIndex.current = null;
-                        pendingCfi.current = null;
-                        if (mappedIdx >= 0 && mappedIdx < graphRef.length) return mappedIdx;
-                      }
-                      
-                      const targetCfi = pendingCfi.current;
-                      if (targetCfi) {
-                        pendingCfi.current = null;
-                        let bestIdx = 0;
-                        try {
-                          const epubCfi = new ePub.CFI();
-                          for (let i = 0; i < graphRef.length; i++) {
-                            if (epubCfi.compare(graphRef[i].cfi, targetCfi) <= 0) {
-                              bestIdx = i;
-                            } else {
-                              break;
-                            }
-                          }
-                          return bestIdx;
-                        } catch (e) {
-                          console.warn("CFI Comparison failed, falling back to DOM:", e);
-                        }
-                      }
-
-                      if (forcedIndex !== null) return forcedIndex;
-                      if (!targetElement) return 0;
-                      
-                      let matchedIdx = 0, found = false, idxCount = 0;
-                      rawElements.forEach(el => {
-                        const txt = el.textContent?.trim();
-                        if (txt && txt.length > 5) {
-                          if (!found) {
-                            if (el === targetElement || el.contains(targetElement)) { matchedIdx = idxCount; found = true; }
-                            else {
-                              const pos = el.compareDocumentPosition(targetElement as Node);
-                              if (pos & Node.DOCUMENT_POSITION_PRECEDING) { matchedIdx = idxCount; found = true; }
-                            }
-                          }
-                          idxCount++;
-                        }
-                      });
-                      return matchedIdx;
-                    };
-
-                    if (lastSpineHrefRef.current !== spineItem.href || vnParagraphs.length === 0) {
-                      lastSpineHrefRef.current = spineItem.href;
-                      const chapterGraph: VnParagraph[] = [];
-                      rawElements.forEach(element => {
-                        const txt = element.textContent?.trim();
-                        if (txt && txt.length > 5) {
-                          const nativeCfi = correctContents.cfiFromNode(element);
-                          if (nativeCfi) {
-                            chapterGraph.push({ 
-                                text: txt, 
-                                cfi: nativeCfi, 
-                                html: element.innerHTML 
-                            });
-                          }
-                        }
-                      });
-                      if (chapterGraph.length > 0) {
-                        setVnParagraphs(chapterGraph);
-                        if (isNavigatingBackward.current) {
-                          const extremeIdx = chapterGraph.length - 1;
-                          setActiveParagraphIndex(extremeIdx);
-                          isInternalVnNavigation.current = true;
-                          renditionRef.current.display(chapterGraph[extremeIdx].cfi);
-                          isNavigatingBackward.current = false;
-                        } else {
-                          const finalIdx = resolveTargetIndex(chapterGraph);
-                          setActiveParagraphIndex(finalIdx);
-                          if (finalIdx > 0 && chapterGraph[finalIdx]) {
-                            isInternalVnNavigation.current = true;
-                            renditionRef.current.display(chapterGraph[finalIdx].cfi);
-                          }
-                        }
-                      }
-                    } else {
-                      const finalIdx = resolveTargetIndex(vnParagraphs);
-                      setActiveParagraphIndex(finalIdx);
-                      if (finalIdx > 0 && vnParagraphs[finalIdx]) {
-                        isInternalVnNavigation.current = true;
-                        renditionRef.current.display(vnParagraphs[finalIdx].cfi);
-                      }
-                    }
-                  } catch (err) { console.error("Chapter Extraction Error:", err); }
-                }, 100);
-              }
-            } catch (err) {}
-          } catch (generalError) { console.error("Error in relocated hook:", generalError); }
+          if (!location?.start?.cfi) return;
+          setCurrentCfi(location.start.cfi);
         });
       }
     });
@@ -1063,138 +914,41 @@ export default function App() {
   const nextPage = advanceVnDialogue;
   const prevPage = previousVnDialogue;
 
-  const navigateToHref = async (href: string) => {
-    if (!renditionRef.current || !bookRef.current) return;
-    
-    console.log(`[TOC] 🚀 USER CLICKED TOC ENTRY: ${href}`);
-    setIsDrawerOpen(false);
-    setLastPassedQuizIndex(-1);
-
-    try {
-      // 1. Tell epub.js to render the chapter and await completion
-      await renditionRef.current.display(href);
-      
-      // 2. Wait an extra 100ms for safety to ensure DOM is fully flushed
-      await new Promise(r => setTimeout(r, 100));
-      
-      // 3. Extract the DOM directly from the loaded rendition
-      const targetFileBase = href.split('#')[0].split('/').pop() || '';
-      const allContents = renditionRef.current.getContents() || [];
-      const activeContents = allContents.find((c: any) => c.document?.URL?.includes(targetFileBase)) || allContents[0];
-      
-      if (!activeContents || !activeContents.document) {
-        console.warn('[TOC] ⚠️ Could not find document after display!');
-        return;
-      }
-      
-      // 4. Build paragraph graph
-      const rawElements = activeContents.document.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
-      const chapterGraph: VnParagraph[] = [];
-      rawElements.forEach((element: Element) => {
-        const txt = element.textContent?.trim();
-        if (txt && txt.length > 5) {
-          const nativeCfi = activeContents.cfiFromNode(element);
-          if (nativeCfi) {
-            chapterGraph.push({ text: txt, cfi: nativeCfi, html: element.innerHTML });
-          }
-        }
-      });
-      
-      if (chapterGraph.length > 0) {
-        // 5. Update Spine tracking so relocated handler doesn't double-rebuild
-        const spineFile = href.split('#')[0];
-        lastSpineHrefRef.current = bookRef.current.spine.get(spineFile)?.href || spineFile;
-        
-        // 6. Handle Anchor Hashes (#section2)
-        const hash = href.split('#')[1];
-        let targetIdx = 0;
-        
-        if (hash) {
-          const targetElement = activeContents.document.getElementById(hash);
-          console.log(`[TOC] Resolving anchor: #${hash}. targetElement found:`, !!targetElement);
-          
-          if (targetElement) {
-            let found = false;
-            let idxCount = 0;
-            rawElements.forEach((el: Element) => {
-               const txt = el.textContent?.trim();
-               if (txt && txt.length > 5) {
-                 if (!found) {
-                   if (el === targetElement || el.contains(targetElement)) {
-                     targetIdx = idxCount; found = true;
-                     console.log(`[TOC] Anchor exactly matches or is inside element at index ${idxCount}`);
-                   } else {
-                     const pos = el.compareDocumentPosition(targetElement);
-                     if (pos & Node.DOCUMENT_POSITION_PRECEDING) {
-                       targetIdx = Math.max(0, idxCount - 1); // Land on the paragraph *before* the target if we passed it, or 0
-                       found = true;
-                       console.log(`[TOC] Anchor precedes element at index ${idxCount}. Snapping to ${targetIdx}`);
-                     }
-                   }
-                 }
-                 idxCount++;
-               }
-            });
-          }
-        }
-        
-        // 7. Update Chapter Title
-        const toc = bookRef.current.navigation?.toc;
-        if (toc) {
-          const findCh = (items: any[], h: string): any => {
-            for (const item of items) {
-              if (h.includes(item.href) || item.href.includes(h)) return item;
-              if (item.subitems) { const sub = findCh(item.subitems, h); if (sub) return sub; }
-            }
-            return null;
-          };
-          const ch = findCh(toc, spineFile);
-          if (ch) setChapterTitle(ch.label);
-        }
-        
-        // 8. Commit to state
-        setVnParagraphs(chapterGraph);
-        setActiveParagraphIndex(targetIdx);
-        
-        // 9. Force sync the exact paragraph CFI so epub.js is locked to our view
-        isInternalVnNavigation.current = true;
-        await renditionRef.current.display(chapterGraph[targetIdx].cfi);
-        console.log(`[TOC] ✅ Paragraph graph built successfully. Snapped to index: ${targetIdx}`);
-      }
-    } catch (err) {
-      console.error('[TOC] Navigation error:', err);
-    }
-  };
 
   const navigateToBookmark = (bm: Bookmark) => {
-    pendingCfi.current = bm.cfi;
-    pendingBookmarkIndex.current = bm.paragraphIndex ?? null;
     setLastPassedQuizIndex(-1); // Reset on jump
-    renditionRef.current?.display(bm.cfi);
     setIsDrawerOpen(false);
+    if (bookRef.current) {
+      jumpToParagraph(bm.href, bm.index);
+    }
   };
 
   // ─── Bookmarks ────────────────────────────────────────────────────────────
   const addBookmark = async () => {
     if (!currentCfi || !activeBook) return;
-    if (bookmarks.some(b => b.cfi === currentCfi)) return;
-    const newBm: Bookmark = { cfi: currentCfi, label: chapterTitle || 'Unknown', paragraphIndex: activeParagraphIndex + 1, timestamp: Date.now() };
+    if (bookmarks.some(b => b.href === lastSpineHrefRef.current && b.index === activeParagraphIndex)) return;
+    const newBm: Bookmark = { href: lastSpineHrefRef.current, index: activeParagraphIndex, label: chapterTitle || 'Unknown', timestamp: Date.now() };
     const updated = [...bookmarks, newBm];
     setBookmarks(updated);
     await saveBookmarks(activeBook.id, updated);
   };
 
-  const removeBookmark = async (cfi: string) => {
+  const removeBookmark = async (timestamp: number) => {
     if (!activeBook) return;
-    const updated = bookmarks.filter(b => b.cfi !== cfi);
+    const updated = bookmarks.filter(b => b.timestamp !== timestamp);
     setBookmarks(updated);
     await saveBookmarks(activeBook.id, updated);
   };
 
-  const isCurrentPageBookmarked = bookmarks.some(b => b.cfi === currentCfi);
+  const isCurrentPageBookmarked = bookmarks.some(b => b.href === lastSpineHrefRef.current && b.index === activeParagraphIndex);
   const toggleBookmark = async () => {
     if (!currentCfi) return;
-    if (isCurrentPageBookmarked) await removeBookmark(currentCfi); else await addBookmark();
+    if (isCurrentPageBookmarked) {
+      const bm = bookmarks.find(b => b.href === lastSpineHrefRef.current && b.index === activeParagraphIndex);
+      if (bm) await removeBookmark(bm.timestamp);
+    } else {
+      await addBookmark();
+    }
   };
 
 // ─── Image Generation ─────────────────────────────────────────────────────
@@ -1411,7 +1165,11 @@ export default function App() {
       <React.Fragment key={`${item.id || idx}-${depth}`}>
         <li>
           <button 
-            onClick={() => navigateToHref(item.href)} 
+            onClick={() => {
+              setIsDrawerOpen(false);
+              setLastPassedQuizIndex(-1);
+              jumpToParagraph(item.href, 0);
+            }} 
             className={`w-full text-left pr-3 py-2 rounded-lg transition-colors font-body cursor-pointer truncate hover:bg-surface-container-highest hover:text-primary ${depth === 0 ? 'text-on-surface text-sm font-bold' : 'text-on-surface-variant text-xs'}`}
             style={{ paddingLeft: `${(depth * 1.5) + 0.75}rem` }}
           >
@@ -1839,9 +1597,13 @@ export default function App() {
                       <button
                         key={idx}
                         onClick={() => {
-                          pendingCfi.current = result.cfi;
-                          renditionRef.current?.display(result.cfi);
                           setIsDrawerOpen(false);
+                          if (bookRef.current) {
+                            const spineItem = bookRef.current.spine.get(result.cfi);
+                            if (spineItem) {
+                              jumpToParagraph(spineItem.href, 0, result.cfi);
+                            }
+                          }
                         }}
                         className="w-full text-left bg-surface-container/30 hover:bg-surface-container-highest border border-outline-variant/10 hover:border-primary/30 rounded-xl p-3 transition-all cursor-pointer group"
                       >
@@ -1876,10 +1638,10 @@ export default function App() {
                   {[...bookmarks].sort((a, b) => b.timestamp - a.timestamp).map((bm, idx) => (
                     <li key={idx} className="flex items-center gap-2 group">
                       <button onClick={() => navigateToBookmark(bm)} className="flex-1 text-left px-3 py-2.5 rounded-lg text-on-surface hover:bg-surface-container-highest hover:text-primary transition-colors cursor-pointer truncate">
-                        <span className="text-sm font-body block truncate">{bm.label}{bm.paragraphIndex ? ` — Para ${bm.paragraphIndex}` : ''}</span>
+                        <span className="text-sm font-body block truncate">{bm.label}{bm.index !== undefined ? ` — Para ${bm.index + 1}` : ''}</span>
                         <span className="text-[10px] text-on-surface-variant font-label">{new Date(bm.timestamp).toLocaleDateString()} {new Date(bm.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       </button>
-                      <button onClick={() => removeBookmark(bm.cfi)} className="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-red-400 transition-all p-1 cursor-pointer">
+                      <button onClick={() => removeBookmark(bm.timestamp)} className="opacity-0 group-hover:opacity-100 text-on-surface-variant hover:text-red-400 transition-all p-1 cursor-pointer">
                         <span className="material-symbols-outlined text-base">delete</span>
                       </button>
                     </li>

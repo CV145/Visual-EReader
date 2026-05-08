@@ -12,14 +12,14 @@ export interface BookMeta {
   coverBase64: string | null;
   addedAt: number;
   lastOpenedAt: number;
-  lastCfi: string | null;
+  lastLocation?: { href: string; index: number };
   anchorGenre: string | null;
 }
 
 export interface Bookmark {
-  cfi: string;
+  href: string;
+  index: number;
   label: string;
-  paragraphIndex?: number;
   timestamp: number;
 }
 
@@ -81,16 +81,21 @@ export const loadBookFile = async (bookId: string): Promise<ArrayBuffer | null> 
 
 // ─── Reading Location ─────────────────────────────────────────────────────────
 
-export const saveLocation = async (bookId: string, cfi: string) => {
-  await localforage.setItem(`location_${bookId}`, cfi);
+export const saveLocation = async (bookId: string, href: string, index: number) => {
+  const loc = { href, index };
+  await localforage.setItem(`location_${bookId}`, loc);
   // Also update lastOpenedAt in manifest
   const lib = await getLibrary();
   const idx = lib.findIndex(b => b.id === bookId);
-  if (idx >= 0) { lib[idx].lastOpenedAt = Date.now(); lib[idx].lastCfi = cfi; await saveLibrary(lib); }
+  if (idx >= 0) { 
+    lib[idx].lastOpenedAt = Date.now(); 
+    lib[idx].lastLocation = loc; 
+    await saveLibrary(lib); 
+  }
 };
 
-export const loadLocation = async (bookId: string): Promise<string | null> => {
-  return localforage.getItem<string>(`location_${bookId}`);
+export const loadLocation = async (bookId: string): Promise<{href: string, index: number} | null> => {
+  return localforage.getItem<{href: string, index: number}>(`location_${bookId}`);
 };
 
 // ─── Bookmarks ────────────────────────────────────────────────────────────────
