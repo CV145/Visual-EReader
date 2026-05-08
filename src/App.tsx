@@ -167,6 +167,8 @@ export default function App() {
   const [isTiktokMode, setIsTiktokMode] = useState(false);
   const [currentChunks, setCurrentChunks] = useState<string[]>([]);
   const [currentChunkIndex, setCurrentChunkIndex] = useState(-1);
+  const [dragY, setDragY] = useState(0);
+  const [isTiktokPaused, setIsTiktokPaused] = useState(false);
   const [currentAudioPrompt, setCurrentAudioPrompt] = useState('');
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [showSafetyPopup, setShowSafetyPopup] = useState(false);
@@ -494,35 +496,75 @@ export default function App() {
   }, [activeParagraphIndex, vnParagraphs]);
 
   // ─── Touch Swipe Handler ─────────────────────────────────────────────────
+  const currentDragYRef = useRef(0);
+
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     touchStartY.current = e.touches[0].clientY;
     touchStartX.current = e.touches[0].clientX;
     swipeHandled.current = false;
+    currentDragYRef.current = 0;
+    setDragY(0);
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (touchStartY.current === null || touchStartX.current === null || swipeHandled.current) return;
     const deltaY = touchStartY.current - e.touches[0].clientY;
     const deltaX = Math.abs(touchStartX.current - e.touches[0].clientX);
-    // Only trigger if vertical swipe is dominant and exceeds threshold
-    if (Math.abs(deltaY) > 50 && Math.abs(deltaY) > deltaX) {
-      swipeHandled.current = true;
-      justSwiped.current = true;
-      setTimeout(() => { justSwiped.current = false; }, 300);
-      if (deltaY > 0) {
-        advanceVnDialogue();
-        navigator.vibrate?.(10);
+
+    if (Math.abs(deltaY) > deltaX) {
+      if (isTiktokMode) {
+        // Continuous visual drag for TikTok mode
+        currentDragYRef.current = -deltaY;
+        setDragY(-deltaY);
       } else {
-        previousVnDialogue();
-        navigator.vibrate?.(10);
+        // Immediate swipe trigger for Visual Novel mode
+        if (Math.abs(deltaY) > 50) {
+          swipeHandled.current = true;
+          justSwiped.current = true;
+          setTimeout(() => { justSwiped.current = false; }, 300);
+          if (deltaY > 0) {
+            advanceVnDialogue();
+            navigator.vibrate?.(10);
+          } else {
+            previousVnDialogue();
+            navigator.vibrate?.(10);
+          }
+        }
       }
     }
-  }, [advanceVnDialogue, previousVnDialogue]);
+  }, [advanceVnDialogue, previousVnDialogue, isTiktokMode]);
 
   const handleTouchEnd = useCallback(() => {
+    if (isTiktokMode && touchStartY.current !== null && !swipeHandled.current) {
+      const finalDrag = currentDragYRef.current;
+      if (Math.abs(finalDrag) > 80) { // Threshold to trigger paragraph change
+        justSwiped.current = true;
+        setTimeout(() => { justSwiped.current = false; }, 300);
+        if (finalDrag < 0) { // Swiped up (negative translate)
+          advanceVnDialogue();
+          navigator.vibrate?.(10);
+        } else {
+          previousVnDialogue();
+          navigator.vibrate?.(10);
+        }
+      }
+      setDragY(0); // Snap back
+      currentDragYRef.current = 0;
+    }
     touchStartY.current = null;
     touchStartX.current = null;
-  }, []);
+  }, [advanceVnDialogue, previousVnDialogue, isTiktokMode]);
+
+
+  // ─── Play/Pause Effect for TikTok Mode ───────────────────────────────────
+  useEffect(() => {
+    if (!isTiktokMode) return;
+    if (isTiktokPaused) {
+      window.speechSynthesis.pause();
+    } else {
+      window.speechSynthesis.resume();
+    }
+  }, [isTiktokPaused, isTiktokMode]);
 
   // ─── Paragraph Index Effect (Context / Music / TTS) ───────────────────────
   useEffect(() => {
@@ -1293,55 +1335,71 @@ export default function App() {
           if (justSwiped.current) return;
           const target = e.target as HTMLElement;
           if (!target.closest('button') && !target.closest('a')) {
-            setIsUiVisible(prev => !prev);
+            if (isTiktokMode) {
+              setIsTiktokPaused(prev => {
+                const next = !prev;
+                setIsUiVisible(next); // Show UI when paused
+                return next;
+              });
+            } else {
+              setIsUiVisible(prev => !prev);
+            }
           }
         }}
       >
-        {/* Ken Burns Background — pan-and-scan in TikTok mode */}
-        {(() => {
-          // 15 distinct panning points covering the whole image, sequenced to bounce around
-          const panPositions = [
-            { x: 0, y: 0 },         // 0: Center
-            { x: -25, y: -20 },     // 1: Top Left
-            { x: 25, y: 20 },       // 2: Bottom Right
-            { x: -25, y: 0 },       // 3: Center Left
-            { x: 25, y: -20 },      // 4: Top Right
-            { x: 0, y: 20 },        // 5: Bottom Center
-            { x: 25, y: 0 },        // 6: Center Right
-            { x: 0, y: -20 },       // 7: Top Center
-            { x: -25, y: 20 },      // 8: Bottom Left
-            { x: -12.5, y: -10 },   // 9: Mid-Top Left
-            { x: 12.5, y: 10 },     // 10: Mid-Bottom Right
-            { x: -12.5, y: 10 },    // 11: Mid-Bottom Left
-            { x: 12.5, y: -10 },    // 12: Mid-Top Right
-            { x: -25, y: 10 },      // 13: Lower Left
-            { x: 25, y: -10 },      // 14: Upper Right
-          ];
-          const pos = isTiktokMode 
-            ? panPositions[activeParagraphIndex % 15]
-            : { x: 0, y: 0 };
-          const scale = isTiktokMode ? 2.5 : 1;
-          
-          return isTiktokMode ? (
-            <div 
-              key={activeParagraphIndex}
-              className="absolute inset-0 bg-center bg-no-repeat tiktok-pan-bg"
-              style={{ 
-                backgroundImage: `url(${bgImage})`, 
-                backgroundSize: 'cover',
-                '--tk-scale': String(scale),
-                '--tk-x': `${pos.x}%`,
-                '--tk-y': `${pos.y}%`,
-              } as React.CSSProperties} />
-          ) : (
-            <div className="absolute inset-0 bg-center bg-no-repeat ken-burns-bg"
-              style={{ 
-                backgroundImage: `url(${bgImage})`, 
-                backgroundSize: isStretchImage ? '100% 100%' : 'cover',
-              }} />
-          );
-        })()}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/50 pointer-events-none" />
+        {/* Draggable Reel Container for Background & Text */}
+        <div 
+          className="absolute inset-0 transition-transform duration-300 ease-out pointer-events-none"
+          style={{ 
+            transform: `translateY(${dragY}px)`,
+            transitionDuration: dragY === 0 ? '300ms' : '0ms'
+          }}
+        >
+          {(() => {
+            // 15 distinct panning points covering the whole image, sequenced to bounce around
+            const panPositions = [
+              { x: 0, y: 0 },         // 0: Center
+              { x: -25, y: -20 },     // 1: Top Left
+              { x: 25, y: 20 },       // 2: Bottom Right
+              { x: -25, y: 0 },       // 3: Center Left
+              { x: 25, y: -20 },      // 4: Top Right
+              { x: 0, y: 20 },        // 5: Bottom Center
+              { x: 25, y: 0 },        // 6: Center Right
+              { x: 0, y: -20 },       // 7: Top Center
+              { x: -25, y: 20 },      // 8: Bottom Left
+              { x: -12.5, y: -10 },   // 9: Mid-Top Left
+              { x: 12.5, y: 10 },     // 10: Mid-Bottom Right
+              { x: -12.5, y: 10 },    // 11: Mid-Bottom Left
+              { x: 12.5, y: -10 },    // 12: Mid-Top Right
+              { x: -25, y: 10 },      // 13: Lower Left
+              { x: 25, y: -10 },      // 14: Upper Right
+            ];
+            const pos = isTiktokMode 
+              ? panPositions[activeParagraphIndex % 15]
+              : { x: 0, y: 0 };
+            const scale = isTiktokMode ? 2.5 : 1;
+            
+            return isTiktokMode ? (
+              <div 
+                key={activeParagraphIndex}
+                className="absolute inset-0 bg-center bg-no-repeat tiktok-pan-bg"
+                style={{ 
+                  backgroundImage: `url(${bgImage})`, 
+                  backgroundSize: 'cover',
+                  '--tk-scale': String(scale),
+                  '--tk-x': `${pos.x}%`,
+                  '--tk-y': `${pos.y}%`,
+                } as React.CSSProperties} />
+            ) : (
+              <div className="absolute inset-0 bg-center bg-no-repeat ken-burns-bg"
+                style={{ 
+                  backgroundImage: `url(${bgImage})`, 
+                  backgroundSize: isStretchImage ? '100% 100%' : 'cover',
+                }} />
+            );
+          })()}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/50" />
+        </div>
         <div className="absolute inset-0 p-8 opacity-0 pointer-events-none -z-10" ref={viewerRef}></div>
 
         {bookLoaded ? (
@@ -1381,9 +1439,20 @@ export default function App() {
                 >
                   {vnParagraphs.length > 0 && vnParagraphs[activeParagraphIndex] ? (
                     isTiktokMode ? (
-                      <div className="flex items-center justify-center min-h-[40vh] p-4">
+                      <div 
+                        className="flex items-center justify-center min-h-[40vh] p-4 relative transition-transform duration-300 ease-out"
+                        style={{ 
+                          transform: `translateY(${dragY}px)`,
+                          transitionDuration: dragY === 0 ? '300ms' : '0ms' // instant during drag, animate snap back
+                        }}
+                      >
+                        {isTiktokPaused && (
+                          <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+                            <span className="material-symbols-outlined text-white/50" style={{ fontSize: '120px' }}>play_arrow</span>
+                          </div>
+                        )}
                         <p 
-                          className="font-headline font-bold text-center tracking-wide text-white epub-html-content" 
+                          className={`font-headline font-bold text-center tracking-wide text-white epub-html-content ${isTiktokPaused ? 'opacity-50' : 'opacity-100'} transition-opacity`} 
                           style={{ 
                             fontSize: `${((fontSize / 100) * 2.5).toFixed(2)}rem`,
                             textShadow: '2px 2px 0 #000, -2px 2px 0 #000, 2px -2px 0 #000, -2px -2px 0 #000, 0px 4px 12px rgba(0,0,0,0.9)',
