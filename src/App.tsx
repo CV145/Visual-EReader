@@ -836,14 +836,15 @@ export default function App() {
                     let targetElement: Node | null = null;
                     let forcedIndex: number | null = null;
 
-                    if (pendingCfi.current) {
+                    const activeCfiToResolve = pendingCfi.current || location.start.cfi;
+                    if (activeCfiToResolve) {
                       try {
-                        const r = renditionRef.current.getRange(pendingCfi.current);
+                        const r = renditionRef.current.getRange(activeCfiToResolve);
                         if (r) targetElement = r.startContainer;
                       } catch (e) { console.error("Could not resolve CFI to node:", e); }
                     }
 
-                    if (!targetElement && forcedIndex === null && !pendingCfi.current) forcedIndex = 0;
+                    if (!targetElement && forcedIndex === null && !activeCfiToResolve) forcedIndex = 0;
 
                     const rawElements = activeDoc.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
 
@@ -855,7 +856,7 @@ export default function App() {
                         if (mappedIdx >= 0 && mappedIdx < graphRef.length) return mappedIdx;
                       }
                       
-                      const targetCfi = pendingCfi.current;
+                      const targetCfi = pendingCfi.current || location.start.cfi;
                       if (targetCfi) {
                         pendingCfi.current = null;
                         let bestIdx = 0;
