@@ -477,6 +477,56 @@ export default function App() {
     }
   }, [activeParagraphIndex, vnParagraphs]);
 
+  const navigateBackwardChapter = async (href: string) => {
+    if (!renditionRef.current || !bookRef.current) return;
+    try {
+      await renditionRef.current.display(href);
+      await new Promise(r => setTimeout(r, 100));
+      
+      const targetFileBase = href.split('#')[0].split('/').pop() || '';
+      const allContents = renditionRef.current.getContents() || [];
+      const activeContents = allContents.find((c: any) => c.document?.URL?.includes(targetFileBase)) || allContents[0];
+      
+      if (!activeContents || !activeContents.document) return;
+      
+      const rawElements = activeContents.document.body.querySelectorAll('p, blockquote, li, h1, h2, h3');
+      const chapterGraph: VnParagraph[] = [];
+      rawElements.forEach((element: Element) => {
+        const txt = element.textContent?.trim();
+        if (txt && txt.length > 5) {
+          const nativeCfi = activeContents.cfiFromNode(element);
+          if (nativeCfi) chapterGraph.push({ text: txt, cfi: nativeCfi, html: element.innerHTML });
+        }
+      });
+      
+      if (chapterGraph.length > 0) {
+        lastSpineHrefRef.current = bookRef.current.spine.get(href.split('#')[0])?.href || href.split('#')[0];
+        
+        const toc = bookRef.current.navigation?.toc;
+        if (toc) {
+          const findCh = (items: any[], h: string): any => {
+            for (const item of items) {
+              if (h.includes(item.href) || item.href.includes(h)) return item;
+              if (item.subitems) { const sub = findCh(item.subitems, h); if (sub) return sub; }
+            }
+            return null;
+          };
+          const ch = findCh(toc, lastSpineHrefRef.current);
+          if (ch) setChapterTitle(ch.label);
+        }
+        
+        const extremeIdx = chapterGraph.length - 1;
+        setVnParagraphs(chapterGraph);
+        setActiveParagraphIndex(extremeIdx);
+        isInternalVnNavigation.current = true;
+        await renditionRef.current.display(chapterGraph[extremeIdx].cfi);
+        console.log(`[NAV] ⏪ Swiped backward into previous chapter. Snapped to extreme index: ${extremeIdx}`);
+      }
+    } catch (e) {
+      console.error('[NAV] Backward chapter navigation error:', e);
+    }
+  };
+
   const previousVnDialogue = useCallback(() => {
     if (quizStateRef.current !== 'inactive') return; // Block navigation
     if (activeParagraphIndex > 0) {
@@ -488,10 +538,9 @@ export default function App() {
       try {
         const currentSection = bookRef.current.spine.get(lastSpineHrefRef.current);
         if (currentSection && currentSection.index > 0) {
-          isNavigatingBackward.current = true;
-          renditionRef.current?.display(bookRef.current.spine.get(currentSection.index - 1).href);
+          navigateBackwardChapter(bookRef.current.spine.get(currentSection.index - 1).href);
         }
-      } catch(e) { isNavigatingBackward.current = true; }
+      } catch(e) {}
     }
   }, [activeParagraphIndex, vnParagraphs]);
 
