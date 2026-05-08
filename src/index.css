@@ -153,6 +153,20 @@ html, body {
   will-change: transform;
 }
 
+/* TikTok mode: zoomed-in drift around the current pan position */
+@keyframes tiktokDrift {
+  0%   { transform: scale(var(--tk-scale)) translate(calc(var(--tk-x) + 0%), calc(var(--tk-y) + 0%)); }
+  25%  { transform: scale(calc(var(--tk-scale) + 0.05)) translate(calc(var(--tk-x) + 1.5%), calc(var(--tk-y) - 1%)); }
+  50%  { transform: scale(var(--tk-scale)) translate(calc(var(--tk-x) - 1%), calc(var(--tk-y) + 1.5%)); }
+  75%  { transform: scale(calc(var(--tk-scale) + 0.08)) translate(calc(var(--tk-x) + 0.5%), calc(var(--tk-y) - 0.5%)); }
+  100% { transform: scale(var(--tk-scale)) translate(calc(var(--tk-x) + 0%), calc(var(--tk-y) + 0%)); }
+}
+
+.tiktok-pan-bg {
+  animation: tiktokDrift 8s ease-in-out infinite;
+  will-change: transform;
+}
+
 /* ─── Auto-Hide Header/Footer ─────────────────────────────────────────── */
 .ui-auto-hide {
   transition: opacity 0.4s ease, transform 0.4s ease;

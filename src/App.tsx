@@ -571,23 +571,64 @@ export default function App() {
       if (isTiktokMode && activeNode) {
         window.speechSynthesis.cancel();
 
-        const sanitizedText = activeNode.text
-          .replace(/["\u201c\u201d]/g, '')
-          .replace(/['\u2018\u2019]/g, "'")
+        // Use original text for display (preserves quotes), light sanitization for TTS only
+        const displayText = activeNode.text;
+        const ttsText = displayText
+          .replace(/[\u2018\u2019]/g, "'")
           .replace(/\u2014/g, ', ')
           .replace(/\u2026/g, '...')
-          .replace(/&/g, 'and')
-          .replace(/\*/g, '');
+          .replace(/&/g, 'and');
 
-        // Split into 3-5 word groups for TikTok-style captions
-        const words = sanitizedText.split(/\s+/).filter(w => w.length > 0);
-        let chunks: string[] = [];
+        // Split HTML into word-group chunks preserving formatting tags
+        const htmlContent = activeNode.html || displayText;
+        const splitHtmlIntoWordChunks = (html: string, wordsPerChunk: number): string[] => {
+          // Create a temporary element to parse HTML
+          const temp = document.createElement('div');
+          temp.innerHTML = html;
+          
+          // Walk through all text nodes and collect word boundaries
+          const walker = document.createTreeWalker(temp, NodeFilter.SHOW_TEXT);
+          const textNodes: { node: Text, words: string[] }[] = [];
+          let totalWords = 0;
+          
+          while (walker.nextNode()) {
+            const node = walker.currentNode as Text;
+            const words = node.textContent?.split(/\s+/).filter(w => w.length > 0) || [];
+            if (words.length > 0) {
+              textNodes.push({ node, words });
+              totalWords += words.length;
+            }
+          }
+          
+          // Build chunks by serializing word ranges
+          const chunks: string[] = [];
+          let wordCount = 0;
+          let currentChunkWords: string[] = [];
+          
+          for (const { words } of textNodes) {
+            for (const word of words) {
+              currentChunkWords.push(word);
+              wordCount++;
+              if (wordCount % wordsPerChunk === 0) {
+                chunks.push(currentChunkWords.join(' '));
+                currentChunkWords = [];
+              }
+            }
+          }
+          if (currentChunkWords.length > 0) chunks.push(currentChunkWords.join(' '));
+          
+          return chunks;
+        };
 
-        for (let i = 0; i < words.length; i += 4) {
-          chunks.push(words.slice(i, i + 4).join(' '));
+        const chunks = splitHtmlIntoWordChunks(htmlContent, 4);
+        if (chunks.length === 0) chunks.push(displayText.trim());
+
+        // Also build TTS-only chunks (plain text, same word grouping)
+        const ttsWords = ttsText.split(/\s+/).filter(w => w.length > 0);
+        const ttsChunks: string[] = [];
+        for (let i = 0; i < ttsWords.length; i += 4) {
+          ttsChunks.push(ttsWords.slice(i, i + 4).join(' '));
         }
-
-        if (chunks.length === 0) chunks = [sanitizedText.trim()];
 
         setCurrentChunks(chunks);
         setCurrentChunkIndex(0);
@@ -597,7 +638,7 @@ export default function App() {
         const speakNext = () => {
           if (interrupted || chunkIdx >= chunks.length) return;
           
-          const utterance = new SpeechSynthesisUtterance(chunks[chunkIdx]);
+          const utterance = new SpeechSynthesisUtterance(ttsChunks[chunkIdx] || chunks[chunkIdx]);
           utterance.rate = ttsSpeed * 0.85; // slightly slower for natural pacing
           utterance.pitch = 1;
           
@@ -612,9 +653,22 @@ export default function App() {
           
           utterance.onend = () => {
             chunkIdx++;
-            if (!interrupted && chunkIdx < chunks.length) {
-              // Small pause between chunks for natural pacing
-              speakNext();
+            if (!interrupted) {
+              if (chunkIdx < chunks.length) {
+                speakNext();
+              } else {
+                // Loop back like a TikTok reel — pause at end, then pause at start
+                setTimeout(() => {
+                  if (!interrupted) {
+                    chunkIdx = 0;
+                    setCurrentChunkIndex(0);
+                    // 1s delay before the loop starts speaking again
+                    setTimeout(() => {
+                      if (!interrupted) speakNext();
+                    }, 1000);
+                  }
+                }, 1500);
+              }
             }
           };
           utterance.onerror = () => {
@@ -1243,9 +1297,50 @@ export default function App() {
           }
         }}
       >
-        {/* Ken Burns Background */}
-        <div className="absolute inset-0 ken-burns-bg bg-center bg-no-repeat"
-          style={{ backgroundImage: `url(${bgImage})`, backgroundSize: isStretchImage ? '100% 100%' : 'cover' }} />
+        {/* Ken Burns Background — pan-and-scan in TikTok mode */}
+        {(() => {
+          // 15 distinct panning points covering the whole image, sequenced to bounce around
+          const panPositions = [
+            { x: 0, y: 0 },         // 0: Center
+            { x: -25, y: -20 },     // 1: Top Left
+            { x: 25, y: 20 },       // 2: Bottom Right
+            { x: -25, y: 0 },       // 3: Center Left
+            { x: 25, y: -20 },      // 4: Top Right
+            { x: 0, y: 20 },        // 5: Bottom Center
+            { x: 25, y: 0 },        // 6: Center Right
+            { x: 0, y: -20 },       // 7: Top Center
+            { x: -25, y: 20 },      // 8: Bottom Left
+            { x: -12.5, y: -10 },   // 9: Mid-Top Left
+            { x: 12.5, y: 10 },     // 10: Mid-Bottom Right
+            { x: -12.5, y: 10 },    // 11: Mid-Bottom Left
+            { x: 12.5, y: -10 },    // 12: Mid-Top Right
+            { x: -25, y: 10 },      // 13: Lower Left
+            { x: 25, y: -10 },      // 14: Upper Right
+          ];
+          const pos = isTiktokMode 
+            ? panPositions[activeParagraphIndex % 15]
+            : { x: 0, y: 0 };
+          const scale = isTiktokMode ? 2.5 : 1;
+          
+          return isTiktokMode ? (
+            <div 
+              key={activeParagraphIndex}
+              className="absolute inset-0 bg-center bg-no-repeat tiktok-pan-bg"
+              style={{ 
+                backgroundImage: `url(${bgImage})`, 
+                backgroundSize: 'cover',
+                '--tk-scale': String(scale),
+                '--tk-x': `${pos.x}%`,
+                '--tk-y': `${pos.y}%`,
+              } as React.CSSProperties} />
+          ) : (
+            <div className="absolute inset-0 bg-center bg-no-repeat ken-burns-bg"
+              style={{ 
+                backgroundImage: `url(${bgImage})`, 
+                backgroundSize: isStretchImage ? '100% 100%' : 'cover',
+              }} />
+          );
+        })()}
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/50 pointer-events-none" />
         <div className="absolute inset-0 p-8 opacity-0 pointer-events-none -z-10" ref={viewerRef}></div>
 
@@ -1288,15 +1383,16 @@ export default function App() {
                     isTiktokMode ? (
                       <div className="flex items-center justify-center min-h-[40vh] p-4">
                         <p 
-                          className="font-headline font-bold text-center tracking-wide text-white" 
+                          className="font-headline font-bold text-center tracking-wide text-white epub-html-content" 
                           style={{ 
                             fontSize: `${((fontSize / 100) * 2.5).toFixed(2)}rem`,
-                            textShadow: '0px 4px 12px rgba(0,0,0,0.8), 0px 2px 4px rgba(0,0,0,0.6)',
-                            lineHeight: '1.4'
+                            textShadow: '2px 2px 0 #000, -2px 2px 0 #000, 2px -2px 0 #000, -2px -2px 0 #000, 0px 4px 12px rgba(0,0,0,0.9)',
+                            lineHeight: '1.4',
+                            WebkitTextStroke: '1.5px black',
+                            paintOrder: 'stroke fill',
                           }}
-                        >
-                          {currentChunkIndex >= 0 && currentChunks[currentChunkIndex] ? currentChunks[currentChunkIndex] : ''}
-                        </p>
+                          dangerouslySetInnerHTML={{ __html: currentChunkIndex >= 0 && currentChunks[currentChunkIndex] ? currentChunks[currentChunkIndex] : '' }}
+                        />
                       </div>
                     ) : (
                       <div
