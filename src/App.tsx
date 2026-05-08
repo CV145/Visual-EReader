@@ -614,7 +614,7 @@ export default function App() {
             chunkIdx++;
             if (!interrupted && chunkIdx < chunks.length) {
               // Small pause between chunks for natural pacing
-              setTimeout(() => speakNext(), 250);
+              speakNext();
             }
           };
           utterance.onerror = () => {
