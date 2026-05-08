@@ -462,15 +462,16 @@ export default function App() {
     if (!renditionRef.current || !bookRef.current) return;
     try {
       await renditionRef.current.display(href);
-      
-      const targetFileBase = href.split('#')[0].split('/').pop() || '';
+      const targetSection = bookRef.current.spine.get(href.split('#')[0]);
+      const targetSectionIndex = targetSection ? targetSection.index : -1;
+
       let activeContents: any = null;
       let retries = 0;
       while (retries < 40) { // Up to 2 seconds polling
         await new Promise(r => setTimeout(r, 50));
         const allContents = renditionRef.current.getContents() || [];
-        activeContents = allContents.find((c: any) => c.document?.URL?.includes(targetFileBase)) || allContents[0];
-        if (activeContents?.document?.body?.querySelectorAll('p, blockquote').length > 0) break;
+        activeContents = allContents.find((c: any) => c.sectionIndex === targetSectionIndex);
+        if (activeContents && activeContents.document?.body?.querySelectorAll('p, blockquote').length > 0) break;
         retries++;
       }
       
