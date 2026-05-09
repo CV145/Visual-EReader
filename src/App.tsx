@@ -778,33 +778,9 @@ export default function App() {
           return chunks;
         };
 
-        const chunks = splitHtmlIntoWordChunks(htmlContent, 4);
+        const WORDS_PER_CHUNK = 12;
+        const chunks = splitHtmlIntoWordChunks(htmlContent, WORDS_PER_CHUNK);
         if (chunks.length === 0) chunks.push(displayText.trim());
-
-        // Build a char-index to chunk-index map to sync visual chunks with continuous audio
-        const charToChunkMap: number[] = new Array(ttsText.length + 1).fill(0);
-        let wordIndex = 0;
-        let lastChar = 0;
-        const wordRegex = /\S+/g;
-        let match;
-        
-        while ((match = wordRegex.exec(ttsText)) !== null) {
-          const start = match.index;
-          const chunkIdx = Math.floor(wordIndex / 4);
-          for (let i = lastChar; i <= start; i++) {
-            charToChunkMap[i] = chunkIdx;
-          }
-          // The word itself maps to chunkIdx
-          for (let i = start; i < start + match[0].length; i++) {
-            charToChunkMap[i] = chunkIdx;
-          }
-          lastChar = start + match[0].length;
-          wordIndex++;
-        }
-        // Fill remaining trailing chars
-        for (let i = lastChar; i < charToChunkMap.length; i++) {
-          charToChunkMap[i] = Math.floor((wordIndex > 0 ? wordIndex - 1 : 0) / 4);
-        }
 
         setCurrentChunks(chunks);
         setCurrentChunkIndex(0);
