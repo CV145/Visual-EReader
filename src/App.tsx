@@ -164,6 +164,7 @@ export default function App() {
   const [currentContextText, setCurrentContextText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const [isAutoAdvance, setIsAutoAdvance] = useState(false);
   const [isTiktokMode, setIsTiktokMode] = useState(false);
   const [currentChunks, setCurrentChunks] = useState<string[]>([]);
   const [currentChunkIndex, setCurrentChunkIndex] = useState(-1);
@@ -795,16 +796,23 @@ export default function App() {
             if (interrupted) return;
             
             if (currentU >= chunks.length) {
-              // Loop back like a TikTok reel — pause at end, then pause at start
-              setTimeout(() => {
-                if (!interrupted) {
-                  setCurrentChunkIndex(0);
-                  // 1s delay before the loop starts speaking again
-                  setTimeout(() => {
-                    if (!interrupted) speakAll();
-                  }, 1000);
-                }
-              }, 1500);
+              if (isAutoAdvance) {
+                // Auto-advance to next paragraph
+                setTimeout(() => {
+                  if (!interrupted) advanceVnDialogue();
+                }, 800); // Slight delay for cinematic feel
+              } else {
+                // Loop back like a TikTok reel — pause at end, then pause at start
+                setTimeout(() => {
+                  if (!interrupted) {
+                    setCurrentChunkIndex(0);
+                    // 1s delay before the loop starts speaking again
+                    setTimeout(() => {
+                      if (!interrupted) speakAll();
+                    }, 1000);
+                  }
+                }, 1500);
+              }
               return;
             }
 
@@ -847,7 +855,7 @@ export default function App() {
       window.speechSynthesis.cancel();
       setCurrentChunkIndex(-1);
     };
-  }, [activeParagraphIndex, vnParagraphs, isMusicPlaying, isTiktokMode, activeBook, advanceVnDialogue]);
+  }, [activeParagraphIndex, vnParagraphs, isMusicPlaying, isTiktokMode, activeBook, advanceVnDialogue, isAutoAdvance]);
 
   // ─── Passive Scene Character Detection ────────────────────────────────────
   // No AI — simple name-match per paragraph. Fast and free.
@@ -1511,11 +1519,11 @@ export default function App() {
             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">search</span>
           </button>
           <button
-            onClick={() => { const next = !isQuizEnabled; setIsQuizEnabled(next); localStorage.setItem('QUIZ_ENABLED', next.toString()); }}
-            className={`w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all cursor-pointer group ${isQuizEnabled ? 'text-green-400' : 'text-on-surface-variant hover:text-primary'}`}
-            title={isQuizEnabled ? "Quizzes: ON" : "Quizzes: OFF"}
+            onClick={() => setIsAutoAdvance(prev => !prev)}
+            className={`w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all cursor-pointer group ${isAutoAdvance ? 'text-primary' : 'text-on-surface-variant hover:text-primary'}`}
+            title={isAutoAdvance ? "Auto-Advance: ON" : "Auto-Advance: OFF"}
           >
-            <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">quiz</span>
+            <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">movie</span>
           </button>
         </div>
         <div className="flex items-center gap-2 bg-surface-variant/40 rounded-full px-2 py-1 border border-outline-variant/20 mx-2 md:mx-4">
