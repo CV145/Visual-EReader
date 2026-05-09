@@ -855,7 +855,7 @@ export default function App() {
       window.speechSynthesis.cancel();
       setCurrentChunkIndex(-1);
     };
-  }, [activeParagraphIndex, vnParagraphs, isMusicPlaying, isTiktokMode, activeBook, advanceVnDialogue, isAutoAdvance]);
+  }, [activeParagraphIndex, vnParagraphs, isMusicPlaying, isTiktokMode, activeBook, advanceVnDialogue, isAutoAdvance, ttsSpeed]);
 
   // ─── Passive Scene Character Detection ────────────────────────────────────
   // No AI — simple name-match per paragraph. Fast and free.
@@ -1524,6 +1524,17 @@ export default function App() {
             title={isAutoAdvance ? "Auto-Advance: ON" : "Auto-Advance: OFF"}
           >
             <span className="material-symbols-outlined text-[20px] md:text-2xl group-active:scale-90">movie</span>
+          </button>
+          <button
+            onClick={() => {
+              const nextSpeed = ttsSpeed === 1.0 ? 1.5 : ttsSpeed === 1.5 ? 2.0 : 1.0;
+              setTtsSpeed(nextSpeed);
+              localStorage.setItem('TTS_SPEED', nextSpeed.toString());
+            }}
+            className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full transition-all cursor-pointer group text-on-surface-variant hover:text-primary"
+            title={`TTS Speed: ${ttsSpeed}x`}
+          >
+            <span className="font-mono text-[10px] md:text-xs font-bold">{ttsSpeed}x</span>
           </button>
         </div>
         <div className="flex items-center gap-2 bg-surface-variant/40 rounded-full px-2 py-1 border border-outline-variant/20 mx-2 md:mx-4">
