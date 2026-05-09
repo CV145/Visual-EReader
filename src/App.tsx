@@ -510,8 +510,10 @@ export default function App() {
         const toc = bookRef.current.navigation?.toc;
         if (toc) {
           const findCh = (items: any[], h: string): any => {
+            const cleanH = h.split('#')[0];
             for (const item of items) {
-              if (h.includes(item.href) || item.href.includes(h)) return item;
+              const cleanItemHref = item.href.split('#')[0];
+              if (cleanH.includes(cleanItemHref) || cleanItemHref.includes(cleanH)) return item;
               if (item.subitems) { const sub = findCh(item.subitems, h); if (sub) return sub; }
             }
             return null;
@@ -830,16 +832,7 @@ export default function App() {
           
           utterance.onend = () => {
             if (!interrupted) {
-              // Loop back like a TikTok reel — pause at end, then pause at start
-              setTimeout(() => {
-                if (!interrupted) {
-                  setCurrentChunkIndex(0);
-                  // 1s delay before the loop starts speaking again
-                  setTimeout(() => {
-                    if (!interrupted) speakAll();
-                  }, 1000);
-                }
-              }, 1500);
+              advanceVnDialogue();
             }
           };
           
