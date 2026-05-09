@@ -809,51 +809,16 @@ export default function App() {
         setCurrentChunks(chunks);
         setCurrentChunkIndex(0);
 
-        // Speak the entire string continuously, updating visual chunks on word boundaries
+        // Speak the chunks sequentially for guaranteed perfect sync on mobile
         const speakAll = () => {
           if (interrupted) return;
           
-          const utterance = new SpeechSynthesisUtterance(ttsText);
-          utterance.rate = ttsSpeed * 0.85; // slightly slower for natural pacing
-          utterance.pitch = 1;
+          let currentU = 0;
           
-          // Try to pick a good voice
-          const voices = window.speechSynthesis.getVoices();
-          const preferredVoice = voices.find(v => v.name.includes('Samantha')) 
-            || voices.find(v => v.lang.startsWith('en') && v.localService)
-            || voices[0];
-          if (preferredVoice) utterance.voice = preferredVoice;
-          
-          let boundaryFired = false;
-          utterance.onboundary = (e) => {
-            boundaryFired = true;
-            if (e.name === 'word') {
-              setCurrentChunkIndex(charToChunkMap[e.charIndex] || 0);
-            }
-          };
-          
-          const msPerWord = 333 / (ttsSpeed * 0.85); 
-          let fallbackInterval: any;
-
-          utterance.onstart = () => {
-            let elapsed = 0;
-            fallbackInterval = setInterval(() => {
-              if (boundaryFired || interrupted) {
-                clearInterval(fallbackInterval);
-                return;
-              }
-              elapsed += 100;
-              const expectedWordIndex = Math.floor(elapsed / msPerWord);
-              const chunkIdx = Math.floor(expectedWordIndex / 4);
-              if (chunkIdx < chunks.length) {
-                setCurrentChunkIndex(chunkIdx);
-              }
-            }, 100);
-          };
-          
-          utterance.onend = () => {
-            clearInterval(fallbackInterval);
-            if (!interrupted) {
+          const playNext = () => {
+            if (interrupted) return;
+            
+            if (currentU >= chunks.length) {
               // Loop back like a TikTok reel — pause at end, then pause at start
               setTimeout(() => {
                 if (!interrupted) {
@@ -864,10 +829,37 @@ export default function App() {
                   }, 1000);
                 }
               }, 1500);
+              return;
             }
+
+            const chunkText = chunks[currentU];
+            const utterance = new SpeechSynthesisUtterance(chunkText);
+            utterance.rate = ttsSpeed * 0.85; 
+            utterance.pitch = 1;
+            
+            const voices = window.speechSynthesis.getVoices();
+            const preferredVoice = voices.find(v => v.name.includes('Samantha')) 
+              || voices.find(v => v.lang.startsWith('en') && v.localService)
+              || voices[0];
+            if (preferredVoice) utterance.voice = preferredVoice;
+            
+            utterance.onstart = () => {
+              if (!interrupted) {
+                setCurrentChunkIndex(currentU);
+              }
+            };
+            
+            utterance.onend = () => {
+              if (!interrupted) {
+                currentU++;
+                playNext();
+              }
+            };
+            
+            window.speechSynthesis.speak(utterance);
           };
-          
-          window.speechSynthesis.speak(utterance);
+
+          playNext();
         };
 
         speakAll();
