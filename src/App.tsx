@@ -1450,7 +1450,7 @@ export default function App() {
             </div>
 
             {/* Chapter title & Paragraph counter — top left overlay */}
-            <div className={`absolute top-20 md:top-24 left-4 md:left-6 z-40 flex items-center gap-2 md:gap-3 ui-auto-hide ${!isUiVisible ? 'ui-hidden' : ''}`}>
+            <div className="absolute top-20 md:top-24 left-4 md:left-6 z-40 flex items-center gap-2 md:gap-3">
               <span className="text-primary font-label text-xs md:text-sm uppercase tracking-widest px-3 py-1.5 bg-black/60 rounded-full border border-primary/20 shadow-inner backdrop-blur-sm">{chapterTitle}</span>
               <span className="text-white/70 text-xs font-mono tracking-widest bg-black/60 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-sm">
                 {activeParagraphIndex + 1} / {vnParagraphs.length || 1}
