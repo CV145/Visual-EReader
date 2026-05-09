@@ -824,15 +824,46 @@ export default function App() {
             || voices[0];
           if (preferredVoice) utterance.voice = preferredVoice;
           
+          let boundaryFired = false;
           utterance.onboundary = (e) => {
+            boundaryFired = true;
             if (e.name === 'word') {
               setCurrentChunkIndex(charToChunkMap[e.charIndex] || 0);
             }
           };
           
+          const msPerWord = 333 / (ttsSpeed * 0.85); 
+          let fallbackInterval: any;
+
+          utterance.onstart = () => {
+            let elapsed = 0;
+            fallbackInterval = setInterval(() => {
+              if (boundaryFired || interrupted) {
+                clearInterval(fallbackInterval);
+                return;
+              }
+              elapsed += 100;
+              const expectedWordIndex = Math.floor(elapsed / msPerWord);
+              const chunkIdx = Math.floor(expectedWordIndex / 4);
+              if (chunkIdx < chunks.length) {
+                setCurrentChunkIndex(chunkIdx);
+              }
+            }, 100);
+          };
+          
           utterance.onend = () => {
+            clearInterval(fallbackInterval);
             if (!interrupted) {
-              advanceVnDialogue();
+              // Loop back like a TikTok reel — pause at end, then pause at start
+              setTimeout(() => {
+                if (!interrupted) {
+                  setCurrentChunkIndex(0);
+                  // 1s delay before the loop starts speaking again
+                  setTimeout(() => {
+                    if (!interrupted) speakAll();
+                  }, 1000);
+                }
+              }, 1500);
             }
           };
           
