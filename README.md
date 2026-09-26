@@ -12,7 +12,6 @@ An interactive, offline-capable production-grade digital reading web application
 ## Key Features
 
 - **Contextual Visual Generation**: Analyzes reading passages and generates dynamic scene illustrations via Google Gemini and local generative image pipelines.
-- **Adaptive Ambient Audio**: Integrates generative soundscapes (`lyriaEngine`) calibrated to the narrative tone and pacing of the active chapter.
 - **Web Worker Architecture**: Offloads parsing and model task orchestration to background web workers (`llm.worker.ts`), preventing main thread UI blocking.
 - **Offline-First Persistence**: Utilizes browser-native IndexedDB (`db.ts`) to locally cache full-text libraries, settings, and generated multimodal assets.
 - **Dynamic Library Management**: Full EPUB/text ingestion and reading progress tracking across multiple documents.
