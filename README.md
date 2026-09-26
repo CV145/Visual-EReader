@@ -1,20 +1,74 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Visual E-Reader: Context-Aware Multimodal Reading Platform
 
-# Run and deploy your AI Studio app
-
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/c916777a-9bfa-44e7-ac9f-f75ed516d2a4
-
-## Run Locally
-
-**Prerequisites:**  Node.js
+An interactive, offline-capable production-grade digital reading web application that enriches narrative text with real-time AI-generated contextual imagery and adaptive ambient soundscapes. Built with React, TypeScript, Vite, and Google Gemini.
 
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+![A view of the reader with a generated image](./assets/screenshots/1.png)
+
+![A view of the generated character profiles beside the reader](./assets/screenshots/2.png)
+
+---
+
+## Key Features
+
+- **Contextual Visual Generation**: Analyzes reading passages and generates dynamic scene illustrations via Google Gemini and local generative image pipelines.
+- **Adaptive Ambient Audio**: Integrates generative soundscapes (`lyriaEngine`) calibrated to the narrative tone and pacing of the active chapter.
+- **Web Worker Architecture**: Offloads parsing and model task orchestration to background web workers (`llm.worker.ts`), preventing main thread UI blocking.
+- **Offline-First Persistence**: Utilizes browser-native IndexedDB (`db.ts`) to locally cache full-text libraries, settings, and generated multimodal assets.
+- **Dynamic Library Management**: Full EPUB/text ingestion and reading progress tracking across multiple documents.
+
+---
+
+## Technical Stack
+
+- **Frontend Core**: React 18, TypeScript, Vite
+- **Styling**: Tailwind CSS
+- **AI & Multimodal Services**: Google Gemini API, Custom Audio/Visual Pipeline
+- **Concurrency**: Web Workers API (`llm.worker.ts`)
+- **Persistence**: IndexedDB Client-Side Storage
+
+---
+
+## Architecture Overview
+
+```text
+src/
+├── App.tsx               # Main application container & reading viewport
+├── LibraryPage.tsx       # Local book repository & document upload interface
+├── SettingsModal.tsx     # API credential management & rendering preferences
+├── db.ts                 # IndexedDB schema & asset caching layer
+├── gemini.ts             # Google Gemini client & prompt orchestration
+├── llm.worker.ts         # Dedicated Web Worker for off-thread AI tasks
+├── lyriaEngine.ts        # Ambient audio synthesis engine
+└── localImageEngine.ts   # Client-side image generation and caching handler
+
+```
+### Getting Started
+
+## 1. Installation
+Clone the repository and install dependencies:
+
+```
+git clone [https://github.com/CV145/Visual-EReader.git](https://github.com/CV145/Visual-EReader.git)
+cd Visual-EReader
+npm install
+```
+
+## 2. Environment Variables
+Create a .env file in the root directory:
+
+```
+VITE_GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+## 3. Run Development Server
+
+```
+npm run dev
+```
+
+## 4. Production Build
+
+```
+npm run build
+```
